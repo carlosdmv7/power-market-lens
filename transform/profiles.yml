@@ -1,6 +1,11 @@
 # Committed on purpose: it holds no secret. DuckDB reads MOTHERDUCK_TOKEN from
 # the environment for any `md:` path, so the same file works locally (via .env)
 # and in GitHub Actions (via repository secrets).
+#
+# TimeZone is pinned to UTC on every target. A session otherwise inherits the
+# machine's zone (Europe/Madrid on a laptop, UTC on a GitHub runner), and any
+# timestamptz → date cast or date_trunc would give different answers in dev and
+# CI. Local time is always derived explicitly from the zone's IANA name.
 power_market_lens:
   target: dev
   outputs:
@@ -9,6 +14,8 @@ power_market_lens:
       type: duckdb
       path: "md:power_dev"
       threads: 4
+      settings:
+        TimeZone: UTC
     # Pull-request CI: same database as dev, but every schema gets a `ci_`
     # prefix (see generate_schema_name), so a PR build never overwrites the
     # tables a developer is looking at.
@@ -17,8 +24,12 @@ power_market_lens:
       path: "md:power_dev"
       schema: ci
       threads: 4
+      settings:
+        TimeZone: UTC
     # Written only by the main-branch pipeline (CLAUDE.md, hard rules).
     prod:
       type: duckdb
       path: "md:power_prod"
       threads: 4
+      settings:
+        TimeZone: UTC

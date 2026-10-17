@@ -11,6 +11,11 @@ seed-paths: ["seeds"]
 target-path: "target"
 clean-targets: ["target", "dbt_packages"]
 
+vars:
+  # SDAC delivery days and price limits are defined in market time (CET/CEST)
+  # for every zone, whatever the zone's own clock (Portugal runs on WET).
+  sdac_market_timezone: Europe/Brussels
+
 # Layers follow CLAUDE.md: staging → intermediate → marts. Raw is not a dbt
 # layer: the Python loader owns it (append-only), and dbt only reads it as a
 # source. Schema names come from macros/generate_schema_name.sql.

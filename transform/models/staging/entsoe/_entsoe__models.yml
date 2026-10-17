@@ -1,0 +1,135 @@
+version: 2
+
+models:
+  - name: stg_entsoe__day_ahead_prices
+    description: >
+      Day-ahead prices at native resolution, deduplicated to the latest
+      published version of each interval. Grain: zone × interval start ×
+      resolution.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [bidding_zone_eic, period_start_utc, resolution_minutes]
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bidding_zones')
+                field: bidding_zone_eic
+      - name: period_start_utc
+        description: Start of the market time unit, UTC.
+        data_tests:
+          - not_null
+      - name: period_end_utc
+        description: End of the market time unit, UTC (exclusive).
+      - name: resolution_minutes
+        description: Length of the market time unit in minutes.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [15, 30, 60]
+                quote: false
+      - name: price_eur_mwh
+        description: Clearing price, EUR/MWh. Can be negative. Not range-checked here (see int_day_ahead_prices__validated).
+        data_tests:
+          - not_null
+      - name: currency
+        description: Currency of the price.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [EUR]
+      - name: price_unit
+        description: Energy unit of the price.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [MWH]
+      - name: document_mrid
+        description: ENTSO-E document the kept version came from.
+      - name: document_created_at
+        description: When ENTSO-E created that document, UTC.
+      - name: loaded_at
+        description: When the kept version was loaded, UTC.
+
+  - name: stg_entsoe__generation_per_type
+    description: >
+      Actual generation per production type at native resolution, deduplicated
+      to the latest published version. Grain: zone × production type ×
+      direction × interval start × resolution.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              [bidding_zone_eic, psr_type, flow_direction, period_start_utc, resolution_minutes]
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bidding_zones')
+                field: bidding_zone_eic
+      - name: psr_type
+        description: ENTSO-E production type code.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('entsoe_psr_types')
+                field: psr_type
+      - name: flow_direction
+        description: generation (into the zone) or consumption (out of it, e.g. pumping).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [generation, consumption]
+      - name: period_start_utc
+        description: Start of the interval, UTC.
+        data_tests:
+          - not_null
+      - name: period_end_utc
+        description: End of the interval, UTC (exclusive).
+      - name: resolution_minutes
+        description: Length of the interval in minutes.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [15, 30, 60]
+                quote: false
+      - name: quantity_mw
+        description: Average power over the interval, MW.
+        data_tests:
+          - not_null
+      - name: document_mrid
+        description: ENTSO-E document the kept version came from.
+      - name: document_created_at
+        description: When ENTSO-E created that document, UTC.
+      - name: loaded_at
+        description: When the kept version was loaded, UTC.
+
+unit_tests:
+  - name: test_stg_day_ahead_prices_keeps_the_latest_load
+    description: >
+      A re-pull that revised a price must replace it; a point loaded once must
+      survive; the same instant at another resolution is a different row.
+    model: stg_entsoe__day_ahead_prices
+    given:
+      - input: source('entsoe', 'day_ahead_prices')
+        rows:
+          - {bidding_zone_eic: Z, period_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, price_eur_mwh: 50, currency: EUR, price_unit: MWH, document_mrid: d1, document_created_at: "2026-06-30 11:00:00+00", _loaded_at: "2026-06-30 13:00:00+00"}
+          - {bidding_zone_eic: Z, period_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, price_eur_mwh: 55, currency: EUR, price_unit: MWH, document_mrid: d2, document_created_at: "2026-07-01 09:00:00+00", _loaded_at: "2026-07-01 13:00:00+00"}
+          - {bidding_zone_eic: Z, period_start_utc: "2026-07-01 10:15:00+00", resolution_minutes: 15, price_eur_mwh: 60, currency: EUR, price_unit: MWH, document_mrid: d1, document_created_at: "2026-06-30 11:00:00+00", _loaded_at: "2026-06-30 13:00:00+00"}
+          - {bidding_zone_eic: Z, period_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 60, price_eur_mwh: 57, currency: EUR, price_unit: MWH, document_mrid: d3, document_created_at: "2026-06-30 11:00:00+00", _loaded_at: "2026-06-30 13:00:00+00"}
+    expect:
+      rows:
+        - {period_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, price_eur_mwh: 55, document_mrid: d2}
+        - {period_start_utc: "2026-07-01 10:15:00+00", resolution_minutes: 15, price_eur_mwh: 60, document_mrid: d1}
+        - {period_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 60, price_eur_mwh: 57, document_mrid: d3}

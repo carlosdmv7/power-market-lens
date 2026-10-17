@@ -1,0 +1,96 @@
+version: 2
+
+models:
+  - name: int_day_ahead_prices__validated
+    description: >
+      Price intervals joined to the SDAC limits valid on their market delivery
+      day, with an out-of-range flag. Grain: as stg_entsoe__day_ahead_prices.
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+      - name: period_start_utc
+        description: Start of the market time unit, UTC.
+      - name: period_end_utc
+        description: End of the market time unit, UTC (exclusive).
+      - name: resolution_minutes
+        description: Length of the market time unit in minutes.
+      - name: market_date
+        description: SDAC delivery day of the interval, in market time (CET/CEST).
+      - name: price_eur_mwh
+        description: Clearing price, EUR/MWh.
+      - name: min_price_eur_mwh
+        description: Harmonised minimum clearing price in force on market_date.
+        data_tests:
+          # Null means no limits row covers the date: extend the seed.
+          - not_null
+      - name: max_price_eur_mwh
+        description: Harmonised maximum clearing price in force on market_date.
+        data_tests:
+          - not_null
+      - name: is_price_out_of_range
+        description: True when the price lies outside the limits in force. Flagged, never dropped.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [false]
+                quote: false
+              config:
+                severity: warn
+      - name: loaded_at
+        description: When the interval's kept version was loaded, UTC.
+
+  - name: int_day_ahead_prices__aggregated_hourly
+    description: >
+      Prices per zone and UTC hour: the mean of the hour's intervals at the
+      finest resolution published for it. Grain: zone × UTC hour.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [bidding_zone_eic, hour_start_utc]
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+      - name: hour_start_utc
+        description: Start of the hour, UTC.
+      - name: resolution_minutes
+        description: Resolution of the intervals averaged into the hour.
+      - name: n_intervals
+        description: Number of intervals averaged (4 for a full quarter-hourly hour, 1 for hourly).
+      - name: is_complete_hour
+        description: True when the intervals cover the whole hour.
+      - name: price_eur_mwh
+        description: Mean of the interval prices, EUR/MWh.
+      - name: min_interval_price_eur_mwh
+        description: Lowest interval price within the hour.
+      - name: max_interval_price_eur_mwh
+        description: Highest interval price within the hour.
+      - name: has_price_out_of_range
+        description: True when any interval of the hour is outside the SDAC limits.
+      - name: loaded_at
+        description: Latest load among the hour's intervals, UTC.
+
+  - name: int_generation__aggregated_hourly
+    description: >
+      Generation and pumping consumption per zone, production type and UTC
+      hour, as mean power over the hour. Grain: zone × production type × UTC hour.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [bidding_zone_eic, psr_type, hour_start_utc]
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+      - name: psr_type
+        description: ENTSO-E production type code.
+      - name: hour_start_utc
+        description: Start of the hour, UTC.
+      - name: resolution_minutes
+        description: Finest resolution among the intervals used.
+      - name: generation_mw
+        description: Mean generation over the hour, MW; equals MWh over a complete hour. Null if none reported.
+      - name: consumption_mw
+        description: Mean consumption by generation units (pumping), MW. Null for types that report none.
+      - name: n_generation_intervals
+        description: Number of generation intervals averaged.
+      - name: loaded_at
+        description: Latest load among the hour's intervals, UTC.
