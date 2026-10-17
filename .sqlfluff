@@ -8,6 +8,10 @@ dialect = duckdb
 # checks anyway.
 templater = jinja
 max_line_length = 100
+# ST06 wants computed columns after plain ones. Column order in a model is
+# part of its contract (period_end_utc belongs next to period_start_utc), so
+# it is decided by meaning, not by how a column is computed.
+exclude_rules = ST06
 
 [sqlfluff:templater:jinja]
 apply_dbt_builtins = True

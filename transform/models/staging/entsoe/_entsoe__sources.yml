@@ -1,0 +1,85 @@
+version: 2
+
+sources:
+  - name: entsoe
+    description: >
+      ENTSO-E Transparency Platform documents, appended by the Python loader
+      (src/power_market_lens/ingest). Append-only: every pull adds rows, so a
+      point appears once per load that covered it (ADR-003).
+    schema: raw
+    tables:
+      - name: day_ahead_prices
+        identifier: entsoe_day_ahead_prices
+        description: Day-ahead prices (document A44), one row per published interval per load.
+        config:
+          # Freshness is judged on the newest delivery interval, not on when
+          # the loader last ran: a pipeline that runs but fetches nothing new
+          # must still turn this red. Day-ahead prices reach into tomorrow, so
+          # a healthy table is "fresh into the future".
+          loaded_at_field: period_start_utc
+          freshness:
+            warn_after: {count: 12, period: hour}
+            error_after: {count: 36, period: hour}
+        columns:
+          - name: bidding_zone_eic
+            description: EIC code of the bidding zone the price is for.
+          - name: period_start_utc
+            description: Start of the market time unit, UTC.
+          - name: resolution_minutes
+            description: Length of the market time unit in minutes (15 or 60; 30 in a few zones).
+          - name: price_eur_mwh
+            description: Clearing price as published.
+          - name: currency
+            description: Currency of the price, expected EUR.
+          - name: price_unit
+            description: Energy unit of the price, expected MWH.
+          - name: document_mrid
+            description: Identifier of the ENTSO-E document the point came from.
+          - name: document_created_at
+            description: When ENTSO-E created that document, UTC.
+          - name: _loaded_at
+            description: When the loader appended the batch, UTC. Same for every row of a batch.
+          - name: _source
+            description: Source and document type, e.g. entsoe:A44.
+          - name: _window_start
+            description: Start of the window the load requested, UTC.
+          - name: _window_end
+            description: End of the window the load requested, UTC (exclusive).
+          - name: _run_id
+            description: Prefect flow-run id of the load, or a label for manual runs.
+
+      - name: generation_per_type
+        identifier: entsoe_generation_per_type
+        description: Actual generation per production type (document A75), one row per interval per load.
+        config:
+          loaded_at_field: period_start_utc
+          freshness:
+            warn_after: {count: 12, period: hour}
+            error_after: {count: 36, period: hour}
+        columns:
+          - name: bidding_zone_eic
+            description: EIC code of the bidding zone.
+          - name: psr_type
+            description: ENTSO-E production type code (B01–B25).
+          - name: flow_direction
+            description: generation (into the zone) or consumption (out of it, e.g. pumping).
+          - name: period_start_utc
+            description: Start of the interval, UTC.
+          - name: resolution_minutes
+            description: Length of the interval in minutes.
+          - name: quantity_mw
+            description: Average power over the interval, MW.
+          - name: document_mrid
+            description: Identifier of the ENTSO-E document the point came from.
+          - name: document_created_at
+            description: When ENTSO-E created that document, UTC.
+          - name: _loaded_at
+            description: When the loader appended the batch, UTC.
+          - name: _source
+            description: Source and document type, e.g. entsoe:A75.
+          - name: _window_start
+            description: Start of the window the load requested, UTC.
+          - name: _window_end
+            description: End of the window the load requested, UTC (exclusive).
+          - name: _run_id
+            description: Prefect flow-run id of the load, or a label for manual runs.
