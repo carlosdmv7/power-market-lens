@@ -23,6 +23,7 @@ dependencies = [
     "entsoe-py==0.8.1",            # ENTSO-E requests; we parse the XML ourselves
     "pandas==3.0.6",               # entsoe-py's timestamps; batch inserts into DuckDB
     "prefect>=3.8.8",
+    "streamlit>=1.66.0",
 ]
 
 [dependency-groups]
