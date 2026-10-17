@@ -66,6 +66,11 @@ jobs:
       - name: dbt deps
         run: uv run dbt deps --project-dir transform --profiles-dir transform
 
+      # `dbt build` opens no connection when there is nothing to build, so on
+      # its own it can pass with a missing or broken token. This fails loudly.
+      - name: dbt debug (MotherDuck connection)
+        run: uv run dbt debug --project-dir transform --profiles-dir transform --target ci
+
       # The ci target writes to ci_staging / ci_intermediate / ci_marts in
       # power_dev and reads raw from power_dev.raw. It never touches power_prod.
       - name: dbt build
