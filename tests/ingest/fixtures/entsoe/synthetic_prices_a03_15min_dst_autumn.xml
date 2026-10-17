@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC fixture, hand-built from the ENTSO-E Transparency Platform format (element names as in entsoe-py's parsers). Exercises one edge case; recorded responses live next to it once an API token is available. -->
+<Publication_MarketDocument xmlns="urn:iec62325.351:tc57wg16:451-3:publicationdocument:7:3">
+  <mRID>SYNTH-A44-20251026</mRID>
+  <revisionNumber>1</revisionNumber>
+  <type>A44</type>
+  <createdDateTime>2025-10-25T11:05:00Z</createdDateTime>
+  <period.timeInterval><start>2025-10-25T22:00Z</start><end>2025-10-26T23:00Z</end></period.timeInterval>
+  <TimeSeries>
+    <mRID>1</mRID>
+    <auction.type>A01</auction.type>
+    <businessType>A62</businessType>
+    <in_Domain.mRID codingScheme="A01">10YES-REE------0</in_Domain.mRID>
+    <out_Domain.mRID codingScheme="A01">10YES-REE------0</out_Domain.mRID>
+    <contract_MarketAgreement.type>A01</contract_MarketAgreement.type>
+    <currency_Unit.name>EUR</currency_Unit.name>
+    <price_Measure_Unit.name>MWH</price_Measure_Unit.name>
+    <curveType>A03</curveType>
+    <Period>
+      <timeInterval><start>2025-10-25T22:00Z</start><end>2025-10-26T23:00Z</end></timeInterval>
+      <resolution>PT15M</resolution>
+        <Point><position>1</position><price.amount>50.00</price.amount></Point>
+        <Point><position>3</position><price.amount>-1.50</price.amount></Point>
+        <Point><position>100</position><price.amount>12.00</price.amount></Point>
+    </Period>
+  </TimeSeries>
+</Publication_MarketDocument>
