@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SYNTHETIC fixture, hand-built from the ENTSO-E Transparency Platform format (element names as in entsoe-py's parsers). Exercises one edge case; recorded responses live next to it once an API token is available. -->
+<Acknowledgement_MarketDocument xmlns="urn:iec62325.351:tc57wg16:451-1:acknowledgementdocument:8:1">
+  <mRID>SYNTH-ACK</mRID>
+  <createdDateTime>2026-10-17T12:00:00Z</createdDateTime>
+  <Reason>
+    <code>999</code>
+    <text>No matching data found for Data item Day-ahead Prices [12.1.D] (10YES-REE------0, 10YES-REE------0) and interval 2030-01-01T00:00:00.000Z/2030-01-02T00:00:00.000Z.</text>
+  </Reason>
+</Acknowledgement_MarketDocument>

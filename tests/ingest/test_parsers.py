@@ -1,0 +1,113 @@
+from datetime import UTC, datetime, timedelta
+from itertools import pairwise
+from pathlib import Path
+
+import pytest
+
+from power_market_lens.ingest.parsers import (
+    EntsoeDocumentError,
+    parse_day_ahead_prices,
+    parse_generation_per_type,
+)
+
+FIXTURES = Path(__file__).parent / "fixtures" / "entsoe"
+ES = "10YES-REE------0"
+
+
+def fixture(name: str) -> str:
+    return (FIXTURES / name).read_text()
+
+
+class TestDayAheadPrices:
+    def test_a03_fills_omitted_positions_forward_across_the_25_hour_day(self):
+        rows = parse_day_ahead_prices(fixture("synthetic_prices_a03_15min_dst_autumn.xml"))
+
+        # 2025-10-26 in Madrid lasts 25 hours: 100 quarter-hours, although the
+        # document only publishes 3 points.
+        assert len(rows) == 100
+        assert [r.price_eur_mwh for r in rows[:4]] == [50.0, 50.0, -1.5, -1.5]
+        assert rows[98].price_eur_mwh == -1.5
+        assert rows[99].price_eur_mwh == 12.0
+
+    def test_intervals_are_contiguous_utc_quarter_hours(self):
+        rows = parse_day_ahead_prices(fixture("synthetic_prices_a03_15min_dst_autumn.xml"))
+
+        assert rows[0].period_start_utc == datetime(2025, 10, 25, 22, 0, tzinfo=UTC)
+        assert rows[-1].period_start_utc == datetime(2025, 10, 26, 22, 45, tzinfo=UTC)
+        steps = {b.period_start_utc - a.period_start_utc for a, b in pairwise(rows)}
+        assert steps == {timedelta(minutes=15)}
+        assert {r.resolution_minutes for r in rows} == {15}
+
+    def test_carries_zone_units_and_document_metadata(self):
+        row = parse_day_ahead_prices(fixture("synthetic_prices_a03_15min_dst_autumn.xml"))[0]
+
+        assert row.bidding_zone_eic == ES
+        assert (row.currency, row.price_unit) == ("EUR", "MWH")
+        assert row.document_mrid == "SYNTH-A44-20251026"
+        assert row.document_created_at == datetime(2025, 10, 25, 11, 5, tzinfo=UTC)
+
+    def test_hourly_a01_on_the_23_hour_day(self):
+        rows = parse_day_ahead_prices(fixture("synthetic_prices_a01_60min_dst_spring.xml"))
+
+        assert len(rows) == 23
+        assert {r.resolution_minutes for r in rows} == {60}
+        assert rows[0].period_start_utc == datetime(2025, 3, 29, 23, 0, tzinfo=UTC)
+
+    def test_out_of_range_prices_are_kept_not_dropped(self):
+        # Flagging happens in dbt against the dated SDAC limits (ADR-003); the
+        # parser must never filter a value it finds implausible.
+        rows = parse_day_ahead_prices(fixture("synthetic_prices_a01_60min_dst_spring.xml"))
+
+        assert max(r.price_eur_mwh for r in rows) == 4100.0
+
+
+class TestGenerationPerType:
+    def test_splits_generation_and_pumping_consumption(self):
+        rows = parse_generation_per_type(fixture("synthetic_generation_per_type.xml"))
+
+        solar = [r for r in rows if r.psr_type == "B16"]
+        pumping = [r for r in rows if r.psr_type == "B10"]
+        assert {r.flow_direction for r in solar} == {"generation"}
+        assert {r.flow_direction for r in pumping} == {"consumption"}
+        assert [r.quantity_mw for r in solar] == [18250, 18400, 18510, 18620]
+
+    def test_a01_gap_stays_a_gap(self):
+        # In A01 a missing position is missing data, not a repeated value;
+        # inventing it would hide the gap from the completeness tests.
+        rows = parse_generation_per_type(fixture("synthetic_generation_per_type.xml"))
+
+        pumping = [r for r in rows if r.psr_type == "B10"]
+        assert [r.period_start_utc.minute for r in pumping] == [0, 15, 45]
+
+
+class TestRejectsWhatItCannotTrust:
+    def test_acknowledgement_raises_with_the_publisher_reason(self):
+        with pytest.raises(EntsoeDocumentError, match="No matching data found"):
+            parse_day_ahead_prices(fixture("synthetic_acknowledgement_no_data.xml"))
+
+    def test_wrong_document_type(self):
+        with pytest.raises(EntsoeDocumentError, match="Expected a Publication_MarketDocument"):
+            parse_day_ahead_prices(fixture("synthetic_generation_per_type.xml"))
+
+    def test_not_xml(self):
+        with pytest.raises(EntsoeDocumentError, match="not valid XML"):
+            parse_day_ahead_prices("<html>Service unavailable")
+
+    def test_unsupported_resolution(self):
+        xml = fixture("synthetic_prices_a01_60min_dst_spring.xml").replace("PT60M", "P1D")
+        with pytest.raises(EntsoeDocumentError, match="Unsupported resolution"):
+            parse_day_ahead_prices(xml)
+
+    def test_position_outside_the_period(self):
+        xml = fixture("synthetic_prices_a01_60min_dst_spring.xml").replace(
+            "<position>23</position>", "<position>24</position>"
+        )
+        with pytest.raises(EntsoeDocumentError, match="outside the period"):
+            parse_day_ahead_prices(xml)
+
+    def test_a03_without_a_first_point(self):
+        xml = fixture("synthetic_prices_a03_15min_dst_autumn.xml").replace(
+            "<position>1</position>", "<position>2</position>"
+        )
+        with pytest.raises(EntsoeDocumentError, match="position 1"):
+            parse_day_ahead_prices(xml)
