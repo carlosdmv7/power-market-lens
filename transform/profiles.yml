@@ -1,0 +1,24 @@
+# Committed on purpose: it holds no secret. DuckDB reads MOTHERDUCK_TOKEN from
+# the environment for any `md:` path, so the same file works locally (via .env)
+# and in GitHub Actions (via repository secrets).
+power_market_lens:
+  target: dev
+  outputs:
+    # Local development and the PR pipeline's sandbox.
+    dev:
+      type: duckdb
+      path: "md:power_dev"
+      threads: 4
+    # Pull-request CI: same database as dev, but every schema gets a `ci_`
+    # prefix (see generate_schema_name), so a PR build never overwrites the
+    # tables a developer is looking at.
+    ci:
+      type: duckdb
+      path: "md:power_dev"
+      schema: ci
+      threads: 4
+    # Written only by the main-branch pipeline (CLAUDE.md, hard rules).
+    prod:
+      type: duckdb
+      path: "md:power_prod"
+      threads: 4

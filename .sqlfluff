@@ -1,0 +1,35 @@
+# SQL style for the dbt models. Same config for pre-commit, `make lint-sql` and CI.
+[sqlfluff]
+dialect = duckdb
+# The jinja templater with dbt builtins, not the dbt templater: the dbt one
+# compiles the project, which needs a live MotherDuck connection and a token in
+# every pre-commit run. Jinja + builtins renders ref/source/var/config offline
+# and fast; the price is that it can't resolve package macros, which dbt build
+# checks anyway.
+templater = jinja
+max_line_length = 100
+
+[sqlfluff:templater:jinja]
+apply_dbt_builtins = True
+load_macros_from_path = transform/macros
+
+[sqlfluff:indentation]
+tab_space_size = 4
+
+# Lowercase everything: the dbt Labs style guide, and easier to read than
+# shouting keywords.
+[sqlfluff:rules:capitalisation.keywords]
+capitalisation_policy = lower
+[sqlfluff:rules:capitalisation.identifiers]
+extended_capitalisation_policy = lower
+[sqlfluff:rules:capitalisation.functions]
+extended_capitalisation_policy = lower
+[sqlfluff:rules:capitalisation.literals]
+capitalisation_policy = lower
+[sqlfluff:rules:capitalisation.types]
+extended_capitalisation_policy = lower
+
+[sqlfluff:rules:aliasing.table]
+aliasing = explicit
+[sqlfluff:rules:aliasing.column]
+aliasing = explicit

@@ -13,7 +13,7 @@ def main() -> None:
         level=settings.log_level,
         format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
     )
-    log.info("Running in %s", settings.env)
+    log.info("Running in %s (database %s)", settings.app_env, settings.database)
 
 
 if __name__ == "__main__":

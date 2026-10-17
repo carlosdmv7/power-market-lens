@@ -5,11 +5,22 @@
 
 .DEFAULT_GOAL := help
 
+# Load .env into commands that talk to MotherDuck, when it exists. CI has no
+# .env (secrets arrive as environment variables), and `--env-file` on a missing
+# file is an error, so the flag is only added locally.
+ENV_FILE := $(if $(wildcard .env),--env-file .env,)
+# dbt target for the dbt-* commands: dev (default), ci or prod.
+TARGET ?= dev
+DBT := uv run $(ENV_FILE) dbt --no-use-colors
+DBT_DIRS := --project-dir transform --profiles-dir transform
+
 # ── Setup ──────────────────────────────────────────────────────────────────────
 .PHONY: install
 install: ## Create .venv from uv.lock + copy .env.example → .env
 	uv sync
 	@if [ ! -f .env ]; then cp .env.example .env; echo "  created .env"; fi
+	uv run pre-commit install
+	$(DBT) deps $(DBT_DIRS)
 	@echo "✅  Done.  (No uv yet?  curl -LsSf https://astral.sh/uv/install.sh | sh)"
 
 # ── Quality gate ───────────────────────────────────────────────────────────────
@@ -19,10 +30,15 @@ install: ## Create .venv from uv.lock + copy .env.example → .env
 lint: ## Lint with ruff (same command CI runs)
 	uv run ruff check .
 
+.PHONY: lint-sql
+lint-sql: ## Lint dbt SQL with sqlfluff (same command CI runs)
+	uv run sqlfluff lint transform/models transform/tests
+
 .PHONY: format
-format: ## Auto-fix lint + format with ruff
+format: ## Auto-fix lint + format with ruff and sqlfluff
 	uv run ruff check --fix .
 	uv run ruff format .
+	uv run sqlfluff fix transform/models transform/tests
 
 .PHONY: format-check
 format-check: ## Fail if anything is unformatted (same command CI runs)
@@ -37,7 +53,24 @@ cov: ## Tests with coverage report
 	uv run pytest --cov --cov-report=term-missing
 
 .PHONY: check
-check: lint format-check test ## Everything CI checks — run before every push
+check: lint format-check lint-sql test ## Everything CI checks — run before every push
+
+# ── dbt ────────────────────────────────────────────────────────────────────────
+# Pick the target with TARGET=dev|ci|prod. Prod is written only by the
+# main-branch pipeline; running `make dbt-build TARGET=prod` locally breaks
+# that rule.
+.PHONY: dbt-debug
+dbt-debug: ## Check the dbt connection to MotherDuck (TARGET=dev)
+	$(DBT) debug $(DBT_DIRS) --target $(TARGET)
+
+.PHONY: dbt-build
+dbt-build: ## Seeds, models and tests (TARGET=dev)
+	$(DBT) build $(DBT_DIRS) --target $(TARGET)
+
+.PHONY: dbt-docs
+dbt-docs: ## Generate and serve dbt docs locally
+	$(DBT) docs generate $(DBT_DIRS) --target $(TARGET)
+	$(DBT) docs serve $(DBT_DIRS)
 
 # ── Run ────────────────────────────────────────────────────────────────────────
 .PHONY: run
@@ -48,6 +81,7 @@ run: ## Run the entrypoint
 .PHONY: clean
 clean: ## Remove caches and build artefacts (keeps .venv and data/)
 	rm -rf .pytest_cache .ruff_cache .coverage htmlcov dist build
+	rm -rf transform/target transform/logs
 	find . -type d -name __pycache__ -not -path './.venv/*' -exec rm -rf {} +
 
 .PHONY: help
