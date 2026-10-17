@@ -1,0 +1,75 @@
+[project]
+name = "power-market-lens"
+version = "0.1.0"
+description = "One sentence: what this project does and for whom."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+# The LOWEST version you support, not the one on your machine. If the project
+# will be deployed somewhere that picks its own interpreter (Streamlit Community
+# Cloud does, from its dashboard), keep the floor at what that platform runs.
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    # Pin exact versions (==) once the project is real: uv.lock already pins
+    # transitively, and exact pins here make upgrades a deliberate diff.
+    "python-dotenv==1.0.1",
+]
+
+[dependency-groups]
+dev = [
+    # Ruff is both linter and formatter. No black: two formatters means two
+    # opinions about the same files.
+    "ruff==0.9.9",
+    "pytest==8.3.5",
+    "pytest-cov==6.0.0",
+]
+
+# src/ layout: the package is importable only once installed, so tests run
+# against the same thing a user would get, not whatever happens to be on the cwd.
+# For a pure application with no package to install, set `package = false` under
+# [tool.uv] and drop [build-system].
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Ruff — lint + format
+# ══════════════════════════════════════════════════════════════════════════════
+[tool.ruff]
+# Must match the floor in requires-python, or ruff suggests syntax that crashes
+# on the oldest interpreter you claim to support.
+target-version = "py312"
+line-length = 100
+extend-exclude = ["data", "logs", "notebooks"]
+
+[tool.ruff.lint]
+# E/W pycodestyle · F pyflakes · I isort · B bugbear · UP pyupgrade
+# SIM simplify · C4 comprehensions · ARG unused args · PTH pathlib · PL pylint
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "C4", "ARG", "PTH", "PL"]
+ignore = [
+    "E501",     # long strings (SQL, messages) — the formatter handles code
+    "PLR0913",  # too many arguments
+    "PLR2004",  # magic values
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["ARG", "PLR2004"]   # fixtures arrive as "unused" args
+"scripts/*.py" = ["T201"]              # scripts may print
+"__init__.py" = ["F401"]               # re-exports
+
+[tool.ruff.lint.isort]
+known-first-party = ["power_market_lens"]
+combine-as-imports = true
+force-sort-within-sections = true
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Pytest
+# ══════════════════════════════════════════════════════════════════════════════
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# importlib mode imports each test file by path, so two folders that both
+# contain a `tests` package never collide on the module name.
+addopts = "--import-mode=importlib -ra"

@@ -1,0 +1,30 @@
+{
+    // ── Python ────────────────────────────────────────────────────────────────
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+    "python.terminal.activateEnvironment": true,
+
+    // ── Ruff: the one linter + formatter (same config as CI, from pyproject) ──
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.fixAll.ruff": "explicit",
+            "source.organizeImports.ruff": "explicit"
+        }
+    },
+
+    // ── Testing ───────────────────────────────────────────────────────────────
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": ["tests"],
+
+    // ── WSL / file watching ───────────────────────────────────────────────────
+    "files.watcherExclude": {
+        "**/.venv/**": true,
+        "**/data/**": true
+    },
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/.pytest_cache": true,
+        "**/.ruff_cache": true
+    }
+}

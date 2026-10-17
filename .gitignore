@@ -1,0 +1,33 @@
+# ── Secrets ───────────────────────────────────────────────────────────────────
+.env
+*.token
+.streamlit/secrets.toml
+
+# ── Python ────────────────────────────────────────────────────────────────────
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ── Notebooks ─────────────────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ── Data / local artefacts ────────────────────────────────────────────────────
+data/
+logs/
+*.duckdb
+*.duckdb.wal
+*.parquet
+
+# ── OS / editors ──────────────────────────────────────────────────────────────
+# .vscode/ is committed on purpose (shared settings + recommended extensions).
+.DS_Store
+Thumbs.db
+*.swp
