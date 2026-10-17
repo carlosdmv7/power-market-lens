@@ -1,0 +1,83 @@
+name: Pipeline
+
+# Runs the Prefect flows against power_prod (ADR-002): GitHub Actions lends the
+# machine, Prefect Cloud records the run. No Prefect deployment is involved;
+# the flow is a plain process.
+#
+# This is the only writer of power_prod (CLAUDE.md, hard rules), which is why
+# the job refuses to run on any ref but main.
+#
+# The daily schedule is added once the first manual run has succeeded. Until
+# the ENTSO-E token exists, a cron would only fail every day.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: daily (trailing window) or backfill (date range)
+        type: choice
+        options: [daily, backfill]
+        default: daily
+      start:
+        description: Backfill start date, YYYY-MM-DD (backfill only)
+        required: false
+      end:
+        description: Backfill end date, YYYY-MM-DD, inclusive (backfill only)
+        required: false
+
+concurrency:
+  group: pipeline
+  cancel-in-progress: false  # never kill a half-finished warehouse write
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    name: ${{ inputs.mode || 'daily' }} → power_prod
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      APP_ENV: prod
+      MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+      ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
+      # Optional: without them the flow runs on a temporary local Prefect
+      # server and the run is only in this job's log.
+      PREFECT_API_KEY: ${{ secrets.PREFECT_API_KEY }}
+      PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Fail in seconds, with a readable message, instead of minutes later
+      # inside a task retry.
+      - name: Check required secrets
+        run: |
+          missing=""
+          [ -n "$MOTHERDUCK_TOKEN" ] || missing="$missing MOTHERDUCK_TOKEN"
+          [ -n "$ENTSOE_API_KEY" ] || missing="$missing ENTSOE_API_KEY"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing"
+            exit 1
+          fi
+          if [ -z "$PREFECT_API_KEY" ] || [ -z "$PREFECT_API_URL" ]; then
+            echo "::warning::PREFECT_API_KEY/URL not set: this run will not appear in Prefect Cloud"
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.0  # publishes no floating major tag
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Daily refresh
+        if: (inputs.mode || 'daily') == 'daily'
+        run: uv run python -m power_market_lens.flows.daily
+
+      - name: Backfill
+        if: inputs.mode == 'backfill'
+        env:
+          START: ${{ inputs.start }}
+          END: ${{ inputs.end }}
+        run: uv run python -m power_market_lens.flows.backfill --start "$START" --end "$END"
