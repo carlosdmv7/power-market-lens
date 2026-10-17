@@ -16,10 +16,10 @@ jobs:
     name: Lint + format + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v10.3.0  # publishes no floating major tag
         with:
           enable-cache: true
 
@@ -27,13 +27,51 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
-      # Same commands as `make lint`, `make format-check` and `make test`, so a
-      # green `make check` locally means a green PR.
+      # Same commands as `make lint`, `make format-check`, `make lint-sql` and
+      # `make test`, so a green `make check` locally means a green PR.
       - name: Ruff lint
         run: uv run ruff check .
 
       - name: Ruff format
         run: uv run ruff format --check .
 
+      - name: SQLFluff lint
+        run: uv run sqlfluff lint transform/models transform/tests
+
       - name: Pytest
         run: uv run pytest
+
+  dbt-build:
+    name: dbt build (ci schemas in power_dev)
+    runs-on: ubuntu-latest
+    needs: check
+    # One CI build at a time: they all share the ci_* schemas in power_dev.
+    concurrency:
+      group: dbt-ci
+      cancel-in-progress: false
+    env:
+      # DuckDB reads it for the `md:` path in transform/profiles.yml.
+      MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.0  # publishes no floating major tag
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: dbt deps
+        run: uv run dbt deps --project-dir transform --profiles-dir transform
+
+      # `dbt build` opens no connection when there is nothing to build, so on
+      # its own it can pass with a missing or broken token. This fails loudly.
+      - name: dbt debug (MotherDuck connection)
+        run: uv run dbt debug --project-dir transform --profiles-dir transform --target ci
+
+      # The ci target writes to ci_staging / ci_intermediate / ci_marts in
+      # power_dev and reads raw from power_dev.raw. It never touches power_prod.
+      - name: dbt build
+        run: uv run dbt build --project-dir transform --profiles-dir transform --target ci

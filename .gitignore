@@ -31,3 +31,7 @@ logs/
 .DS_Store
 Thumbs.db
 *.swp
+
+# ── dbt ───────────────────────────────────────────────────────────────────────
+transform/target/
+transform/dbt_packages/

@@ -2,11 +2,15 @@
 # Power Market Lens
 
 [![CI](https://github.com/carlosdmv7/power-market-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/carlosdmv7/power-market-lens/actions/workflows/ci.yml)
-![Python](https://img.shields.io/badge/python-3.12%20|%203.13-blue)
+![Python](https://img.shields.io/badge/python-3.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-**TODO — one sentence a recruiter understands: what it does, for whom, and the
-headline number.**
+**Why does electricity cost what it costs in Europe? An analytics platform that
+explains day-ahead prices across bidding zones: generation mix, price drivers,
+household price composition, and a leakage-safe day-ahead price forecast for
+Spain.**
+
+> 🚧 Work in progress: Phase 0 (foundations and a Spain-only vertical slice).
 
 **Live demo:** TODO link · **Write-up:** TODO link
 
@@ -37,9 +41,9 @@ TODO   source ──► ingest ──► warehouse ──► transform ──►
 ## Quickstart
 
 ```bash
-make install   # uv sync + .env from .env.example
-make check     # lint + format check + tests — the same gate CI runs
-make run
+make install     # uv sync, .env from .env.example, pre-commit hooks, dbt deps
+make check       # ruff + sqlfluff + pytest — the same gate CI runs
+make dbt-debug   # needs MOTHERDUCK_TOKEN in .env
 ```
 
 Requires [uv](https://docs.astral.sh/uv/). `make help` lists every command.
@@ -47,10 +51,10 @@ Requires [uv](https://docs.astral.sh/uv/). `make help` lists every command.
 ## Project layout
 
 ```text
-src/power_market_lens/   the package (application code)
-tests/             pytest suite — mirrors src/
-docs/adr/          architecture decision records
-scripts/           one-off and maintenance scripts (create when needed)
+src/power_market_lens/   the package: config, ingestion, Prefect flows
+transform/               dbt project (staging → intermediate → marts)
+tests/                   pytest suite — mirrors src/
+docs/adr/                architecture decision records
 ```
 
 ## Decisions

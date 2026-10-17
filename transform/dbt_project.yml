@@ -1,0 +1,35 @@
+name: power_market_lens
+version: "1.0.0"
+config-version: 2
+
+profile: power_market_lens
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+seed-paths: ["seeds"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+# Layers follow CLAUDE.md: staging → intermediate → marts. Raw is not a dbt
+# layer: the Python loader owns it (append-only), and dbt only reads it as a
+# source. Schema names come from macros/generate_schema_name.sql.
+models:
+  power_market_lens:
+    staging:
+      # One view per source table: rename, cast, deduplicate. Views, because
+      # staging is cheap to recompute and should never hold a stale copy.
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      # What the app reads: materialised so a page load never pays for the
+      # whole lineage.
+      +schema: marts
+      +materialized: table
+
+seeds:
+  power_market_lens:
+    +schema: seeds

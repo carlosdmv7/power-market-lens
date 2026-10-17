@@ -33,4 +33,6 @@ git checkout main && git pull
 - **Dependencies through uv only**: `uv add pkg` / `uv add --dev pkg`. Commit
   `uv.lock` with the change.
 - **Non-obvious decisions get an ADR** — copy `docs/adr/0000-template.md`.
+- **Hooks run on every commit** (`make install` installs them): ruff, sqlfluff,
+  file hygiene and the Conventional Commits message check.
 - **Verify by running.** Green unit tests are not proof the thing works; run it.

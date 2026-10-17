@@ -1,27 +1,35 @@
 [project]
 name = "power-market-lens"
 version = "0.1.0"
-description = "One sentence: what this project does and for whom."
+description = "Analytics platform explaining European day-ahead electricity prices: generation mix, price drivers, household price composition and a forecast for Spain."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-# The LOWEST version you support, not the one on your machine. If the project
-# will be deployed somewhere that picks its own interpreter (Streamlit Community
-# Cloud does, from its dashboard), keep the floor at what that platform runs.
-requires-python = ">=3.12,<3.14"
+# 3.13 only (CLAUDE.md fixes the stack). Streamlit Community Cloud picks its own
+# interpreter from its dashboard, so the app must be set to 3.13 there when it
+# is deployed, or its install fails against this floor.
+requires-python = ">=3.13,<3.14"
+# Exact pins: uv.lock already pins transitively; pinning here as well makes an
+# upgrade a deliberate, reviewable diff instead of a side effect of `uv lock`.
 dependencies = [
-    # Pin exact versions (==) once the project is real: uv.lock already pins
-    # transitively, and exact pins here make upgrades a deliberate diff.
-    "python-dotenv==1.0.1",
+    # ── Config ───────────────────────────────────────────────────────────────
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.0",   # typed settings from env vars and .env
+    # ── Warehouse + transformations ──────────────────────────────────────────
+    "duckdb==1.5.6",
+    "dbt-core==1.12.6",
+    "dbt-duckdb==1.11.0",
 ]
 
 [dependency-groups]
 dev = [
     # Ruff is both linter and formatter. No black: two formatters means two
     # opinions about the same files.
-    "ruff==0.9.9",
-    "pytest==8.3.5",
-    "pytest-cov==6.0.0",
+    "ruff==0.17.1",
+    "sqlfluff==4.4.0",
+    "pre-commit==4.7.0",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
 ]
 
 # src/ layout: the package is importable only once installed, so tests run
@@ -38,9 +46,9 @@ build-backend = "uv_build"
 [tool.ruff]
 # Must match the floor in requires-python, or ruff suggests syntax that crashes
 # on the oldest interpreter you claim to support.
-target-version = "py312"
+target-version = "py313"
 line-length = 100
-extend-exclude = ["data", "logs", "notebooks"]
+extend-exclude = ["data", "logs", "notebooks", "transform/target", "transform/dbt_packages"]
 
 [tool.ruff.lint]
 # E/W pycodestyle · F pyflakes · I isort · B bugbear · UP pyupgrade

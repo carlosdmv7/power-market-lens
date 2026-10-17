@@ -47,7 +47,7 @@ Intraday or real-time markets, modelling national subsidies, any AI assistant (s
 - DST: local days have 23, 24 or 25 hours. Completeness tests must account for this.
 - Resolution: SDAC moved to 15-minute market time units on 2025-10-01. Preserve native resolution in raw and staging (`resolution_minutes` column). Hourly marts aggregate quarter-hours as the mean price; keep a quarter-hour mart where data exists.
 - Entity: bidding zone identified by EIC code, mapped to country via a seed. Italy has several zones; DE-LU is a single zone.
-- Prices can be negative. Sanity range: -500 to 4000 EUR/MWh (SDAC harmonised limits). Flag values outside the range; never drop them silently.
+- Prices can be negative. Sanity range: the SDAC harmonised clearing-price limits in force on the delivery date, kept as a dated seed (`sdac_price_limits`: valid_from, valid_to, min, max) because they move automatically (the floor went from -500 to -600 EUR/MWh for delivery from 2026-05-29; the cap is 4000). Flag values outside the range; never drop them silently.
 - Raw is append-only and never updated, with metadata columns `_loaded_at`, `_source`, `_window_start`, `_window_end`. Staging deduplicates keeping the latest `_loaded_at`. Each run re-pulls a trailing window (default 7 days) to capture publisher revisions.
 - Respect API rate limits; backfills run in chunks with retries and backoff.
 - Naming: `stg_<source>__<entity>`, `int_<entity>__<verb>`, `fct_<entity>`, `dim_<entity>`; snake_case everywhere.
@@ -65,15 +65,19 @@ Intraday or real-time markets, modelling national subsidies, any AI assistant (s
 
 ## Commands
 
-- `make install` — sync deps with uv
-- `make check` — lint + format check + tests (the CI gate). Run it before saying a change is done.
-- `make format` — auto-fix
+- `make install` — sync deps with uv, create `.env`, install pre-commit hooks, `dbt deps`
+- `make check` — ruff lint + format check + sqlfluff + pytest (the CI gate). Run it before saying a change is done.
+- `make format` — auto-fix (ruff + sqlfluff)
+- `make dbt-build TARGET=dev|ci` — dbt seeds, models and tests. Never `TARGET=prod` locally.
+- `make dbt-debug` — check the MotherDuck connection
 - `make run` — run the entrypoint
 
 ## Repo conventions (from the template)
 
 - Python via `uv run`, never a bare `python` / `pip`. Add deps with `uv add`.
-- Ruff is the only Python linter and formatter (config in `pyproject.toml`).
+- Ruff is the only Python linter and formatter (config in `pyproject.toml`); sqlfluff lints dbt SQL (`.sqlfluff`).
+- dbt project in `transform/`; `profiles.yml` is committed (no secrets: DuckDB reads `MOTHERDUCK_TOKEN` from the env).
+  Targets: `dev` → `power_dev`, `ci` → `ci_*` schemas in `power_dev`, `prod` → `power_prod`.
 - Code in `src/power_market_lens/`, tests in `tests/` mirroring it.
 - Conventional commits; branch from fresh `main`; PR + green CI to merge.
 - Decisions with trade-offs get an ADR in `docs/adr/`.

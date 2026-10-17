@@ -1,0 +1,43 @@
+# `make install` runs `pre-commit install`, which wires both hook types below.
+default_install_hook_types: [pre-commit, commit-msg]
+
+repos:
+  # Commit messages follow Conventional Commits (feat/fix/docs/chore/...).
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v4.4.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: [--maxkb=512]
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  # Ruff and sqlfluff run from the project's own environment (`uv run`), not
+  # from pre-commit's isolated copies, so uv.lock is the single place their
+  # versions are pinned and a hook can never disagree with CI.
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        types_or: [python, pyi]
+      - id: sqlfluff-lint
+        name: sqlfluff lint
+        entry: uv run sqlfluff lint
+        language: system
+        files: ^transform/(models|tests|analyses)/.*\.sql$
