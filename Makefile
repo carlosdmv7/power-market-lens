@@ -55,6 +55,11 @@ cov: ## Tests with coverage report
 .PHONY: check
 check: lint format-check lint-sql test ## Everything CI checks — run before every push
 
+# ── Warehouse ──────────────────────────────────────────────────────────────────
+.PHONY: raw-tables
+raw-tables: ## Create the raw tables in the APP_ENV database (idempotent)
+	uv run $(ENV_FILE) python -m power_market_lens.ingest.warehouse
+
 # ── dbt ────────────────────────────────────────────────────────────────────────
 # Pick the target with TARGET=dev|ci|prod. Prod is written only by the
 # main-branch pipeline; running `make dbt-build TARGET=prod` locally breaks
