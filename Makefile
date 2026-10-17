@@ -60,6 +60,18 @@ check: lint format-check lint-sql test ## Everything CI checks — run before ev
 raw-tables: ## Create the raw tables in the APP_ENV database (idempotent)
 	uv run $(ENV_FILE) python -m power_market_lens.ingest.warehouse
 
+# ── Flows (Prefect) ────────────────────────────────────────────────────────────
+# APP_ENV in .env picks the database. Prod is written only by the main-branch
+# pipeline, so locally these run against power_dev.
+.PHONY: daily
+daily: ## Run the daily refresh flow once (trailing window + dbt build)
+	uv run $(ENV_FILE) python -m power_market_lens.flows.daily
+
+.PHONY: backfill
+backfill: ## Backfill a date range: make backfill START=2026-07-19 END=2026-10-17
+	@test -n "$(START)" -a -n "$(END)" || (echo "usage: make backfill START=YYYY-MM-DD END=YYYY-MM-DD" && exit 1)
+	uv run $(ENV_FILE) python -m power_market_lens.flows.backfill --start $(START) --end $(END)
+
 # ── dbt ────────────────────────────────────────────────────────────────────────
 # Pick the target with TARGET=dev|ci|prod. Prod is written only by the
 # main-branch pipeline; running `make dbt-build TARGET=prod` locally breaks
