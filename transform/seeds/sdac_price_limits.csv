@@ -1,0 +1,3 @@
+valid_from,valid_to,min_price_eur_mwh,max_price_eur_mwh,note
+2023-01-01,2026-05-29,-500,4000,Harmonised limits in force since before the backfill horizon
+2026-05-29,,-600,4000,Floor lowered automatically under the HMMCP methodology; first delivery day 2026-05-29
