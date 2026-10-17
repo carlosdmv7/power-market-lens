@@ -89,6 +89,11 @@ dbt-docs: ## Generate and serve dbt docs locally
 	$(DBT) docs generate $(DBT_DIRS) --target $(TARGET)
 	$(DBT) docs serve $(DBT_DIRS)
 
+# ── App ────────────────────────────────────────────────────────────────────────
+.PHONY: app
+app: ## Run the Streamlit app (reads WAREHOUSE_PATH, default md:power_prod)
+	uv run $(ENV_FILE) streamlit run app/streamlit_app.py
+
 # ── Run ────────────────────────────────────────────────────────────────────────
 .PHONY: run
 run: ## Run the entrypoint
