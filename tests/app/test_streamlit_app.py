@@ -42,11 +42,13 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
     con.execute(
         """
         create table marts.fct_generation_hourly as
-        select p.zone_code, p.hour_start_utc, p.delivery_date_local, g.psr_name,
-               g.mw as generation_mw
+        select p.zone_code, p.hour_start_utc, p.delivery_date_local, g.psr_type,
+               g.psr_name, g.mw as generation_mw
         from marts.fct_day_ahead_price_hourly as p
-        cross join (values ('Solar', 9000.0), ('Wind Onshore', 7000.0), ('Nuclear', 6000.0))
-            as g(psr_name, mw)
+        cross join (
+            values ('B16', 'Solar', 9000.0), ('B19', 'Wind Onshore', 7000.0),
+                   ('B14', 'Nuclear', 6000.0), ('B11', 'Hydro Run-of-river and poundage', 500.0)
+        ) as g(psr_type, psr_name, mw)
         """
     )
     con.close()
@@ -77,8 +79,8 @@ def test_page_renders_metrics_and_both_charts(run_page):
     metrics = {m.label: m.value for m in at.metric}
     assert metrics["Hours at or below zero"] == "7"  # 13:00 UTC on each of 7 days
     assert metrics["Cheapest hour"] == "-1.00 €/MWh"
-    # st.line_chart and st.area_chart render as Vega-Lite charts.
     assert len(at.get("vega_lite_chart")) == 2
+    assert any("price averaged 49.25 €/MWh" in m.value for m in at.markdown)  # the lede
 
 
 def test_empty_warehouse_explains_itself(run_page):

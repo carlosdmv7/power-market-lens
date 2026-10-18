@@ -1355,6 +1355,7 @@ name = "power-market-lens"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "altair" },
     { name = "dbt-core" },
     { name = "dbt-duckdb" },
     { name = "duckdb" },
@@ -1377,15 +1378,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "altair", specifier = "==6.3.0" },
     { name = "dbt-core", specifier = "==1.12.6" },
     { name = "dbt-duckdb", specifier = "==1.11.0" },
     { name = "duckdb", specifier = "==1.5.6" },
     { name = "entsoe-py", specifier = "==0.8.1" },
     { name = "pandas", specifier = "==3.0.6" },
-    { name = "prefect", specifier = ">=3.8.8" },
+    { name = "prefect", specifier = "==3.8.8" },
     { name = "pydantic", specifier = "==2.14.1" },
     { name = "pydantic-settings", specifier = "==2.16.0" },
-    { name = "streamlit", specifier = ">=1.66.0" },
+    { name = "streamlit", specifier = "==1.66.0" },
 ]
 
 [package.metadata.requires-dev]
