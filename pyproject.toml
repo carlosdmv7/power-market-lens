@@ -22,8 +22,11 @@ dependencies = [
     # ── Ingestion ────────────────────────────────────────────────────────────
     "entsoe-py==0.8.1",            # ENTSO-E requests; we parse the XML ourselves
     "pandas==3.0.6",               # entsoe-py's timestamps; batch inserts into DuckDB
-    "prefect>=3.8.8",
-    "streamlit>=1.66.0",
+    # ── Orchestration ────────────────────────────────────────────────────────
+    "prefect==3.8.8",
+    # ── App ──────────────────────────────────────────────────────────────────
+    "streamlit==1.66.0",
+    "altair==6.3.0",               # brand-themed charts through app/theme.py
 ]
 
 [dependency-groups]
@@ -77,6 +80,10 @@ force-sort-within-sections = true
 
 [tool.ruff.format]
 quote-style = "double"
+# app/theme.py is shared byte-for-byte with my other Streamlit apps (its own
+# docstring states the contract). It is linted, but reformatting it here would
+# fork it from the copies in spanish-housing-radar.
+exclude = ["app/theme.py"]
 
 # ══════════════════════════════════════════════════════════════════════════════
 # Pytest

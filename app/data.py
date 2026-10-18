@@ -70,7 +70,7 @@ def hourly_prices(zone_code: str, start: date, end: date) -> pd.DataFrame:
 def hourly_generation(zone_code: str, start: date, end: date) -> pd.DataFrame:
     return _query(
         """
-        select hour_start_utc, psr_name, generation_mw
+        select hour_start_utc, psr_type, psr_name, generation_mw
         from marts.fct_generation_hourly
         where zone_code = ? and delivery_date_local between ? and ?
             and generation_mw is not null

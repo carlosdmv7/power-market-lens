@@ -24,16 +24,19 @@ repos:
   # Ruff and sqlfluff run from the project's own environment (`uv run`), not
   # from pre-commit's isolated copies, so uv.lock is the single place their
   # versions are pinned and a hook can never disagree with CI.
+  # --force-exclude: pre-commit passes files by name, and ruff ignores its own
+  # excludes for named files unless told not to. app/theme.py must stay
+  # byte-identical to the copy in my other apps.
   - repo: local
     hooks:
       - id: ruff-check
         name: ruff check
-        entry: uv run ruff check --fix
+        entry: uv run ruff check --fix --force-exclude
         language: system
         types_or: [python, pyi]
       - id: ruff-format
         name: ruff format
-        entry: uv run ruff format
+        entry: uv run ruff format --force-exclude
         language: system
         types_or: [python, pyi]
       - id: sqlfluff-lint
