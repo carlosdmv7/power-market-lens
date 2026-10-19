@@ -119,6 +119,26 @@ class TestRecordedResponses:
         assert fossil_gas[:2] == [2492.0, 2344.0]
 
 
+class TestDayAheadAuctionSequences:
+    def test_a_document_mixing_auctions_is_refused(self):
+        # DE-LU, 2024: SDAC as sequence 1 (hourly) and a second auction as
+        # sequence 2 (quarter-hourly). Kept together, the hourly mart's
+        # finest-resolution rule would silently pick the wrong auction.
+        with pytest.raises(EntsoeDocumentError, match=r"sequences \(1, 2\).*sdac_sequence"):
+            parse_day_ahead_prices(
+                fixture("recorded_prices_a44_de-lu_2024-03-15_all_sequences.xml")
+            )
+
+    def test_the_sdac_sequence_alone_parses(self):
+        rows = parse_day_ahead_prices(
+            fixture("recorded_prices_a44_de-lu_2024-03-15_sequence_1.xml")
+        )
+
+        assert len(rows) == 24
+        assert {r.resolution_minutes for r in rows} == {60}
+        assert rows[0].price_eur_mwh == 48.39
+
+
 class TestRejectsWhatItCannotTrust:
     def test_acknowledgement_raises_with_the_publisher_reason(self):
         with pytest.raises(EntsoeDocumentError, match="No matching data found"):

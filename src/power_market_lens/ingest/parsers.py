@@ -9,6 +9,10 @@ resolution (ADR-003), and the two traps of the format are handled explicitly:
   those intervals silently disappear.
 - **Namespaces** carry a schema version that ENTSO-E bumps from time to time,
   so elements are matched by local name, never by namespace.
+- **Several day-ahead auctions** can share one zone: DE-LU publishes SDAC as
+  classification sequence 1 and a second auction as sequence 2, at different
+  prices (and, before October 2025, different resolutions). A document mixing
+  sequences is refused; the zone's `sdac_sequence` must select one.
 
 Format reference: ENTSO-E "Introduction of different Timeseries possibilities
 (curvetypes)" and the Transparency Platform API guide.
@@ -35,6 +39,17 @@ class EntsoeDocumentError(ValueError):
 def parse_day_ahead_prices(xml_text: str) -> list[DayAheadPriceRow]:
     root = _parse_root(xml_text, expected=PRICE_DOCUMENT)
     mrid, created_at = _document_metadata(root)
+
+    sequences = {
+        _text(series, "classificationSequence_AttributeInstanceComponent.position", default=None)
+        for series in _children(root, "TimeSeries")
+    }
+    if len(sequences) > 1:
+        labels = ", ".join(sorted(str(s) for s in sequences))
+        raise EntsoeDocumentError(
+            f"The document mixes day-ahead classification sequences ({labels}): more than one "
+            "auction is published for this zone. Set the zone's sdac_sequence."
+        )
 
     rows = []
     for series in _children(root, "TimeSeries"):
