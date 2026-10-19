@@ -84,3 +84,9 @@ def test_a_failed_dbt_build_fails_the_flow(wired, monkeypatch):
 
     with pytest.raises(RuntimeError, match="dbt build failed"):
         daily_refresh(trailing_days=1)
+
+
+def test_run_dbt_reports_the_cli_exit_status():
+    # The real CLI, in its own process; neither command touches a database.
+    assert tasks.run_dbt(["debug", "--config-dir"]) is True
+    assert tasks.run_dbt(["no-such-command"]) is False

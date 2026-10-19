@@ -41,16 +41,19 @@ jobs:
       APP_ENV: prod
       MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
       ENTSOE_API_KEY: ${{ secrets.ENTSOE_API_KEY }}
-      # Optional: without them the flow runs on a temporary local Prefect
-      # server and the run is only in this job's log.
-      PREFECT_API_KEY: ${{ secrets.PREFECT_API_KEY }}
-      PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
     steps:
       - uses: actions/checkout@v7
 
       # Fail in seconds, with a readable message, instead of minutes later
       # inside a task retry.
+      # The Prefect pair is optional: without it the flow runs on a temporary
+      # local Prefect server and the run is only in this job's log. It is
+      # exported only when set, because Prefect treats an empty PREFECT_API_URL
+      # as configured and then fails to emit every event.
       - name: Check required secrets
+        env:
+          PREFECT_API_KEY: ${{ secrets.PREFECT_API_KEY }}
+          PREFECT_API_URL: ${{ secrets.PREFECT_API_URL }}
         run: |
           missing=""
           [ -n "$MOTHERDUCK_TOKEN" ] || missing="$missing MOTHERDUCK_TOKEN"
@@ -59,7 +62,10 @@ jobs:
             echo "::error::Missing repository secrets:$missing"
             exit 1
           fi
-          if [ -z "$PREFECT_API_KEY" ] || [ -z "$PREFECT_API_URL" ]; then
+          if [ -n "$PREFECT_API_KEY" ] && [ -n "$PREFECT_API_URL" ]; then
+            echo "PREFECT_API_KEY=$PREFECT_API_KEY" >> "$GITHUB_ENV"
+            echo "PREFECT_API_URL=$PREFECT_API_URL" >> "$GITHUB_ENV"
+          else
             echo "::warning::PREFECT_API_KEY/URL not set: this run will not appear in Prefect Cloud"
           fi
 

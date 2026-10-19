@@ -8,6 +8,8 @@ swap them for fakes.
 from collections.abc import Callable
 import os
 from pathlib import Path
+import subprocess  # noqa: S404 - runs this environment's own dbt CLI
+import sys
 
 import duckdb
 from prefect import task
@@ -53,12 +55,17 @@ def load_entity(entity: str, zone_code: str, window: Window) -> int:
 
 
 def run_dbt(args: list[str]) -> bool:
-    from dbt.cli.main import dbtRunner  # noqa: PLC0415 - heavy import, only when dbt runs
+    """Run the dbt CLI of this environment in its own process.
 
-    result = dbtRunner().invoke(
-        [*args, "--project-dir", str(DBT_PROJECT_DIR), "--profiles-dir", str(DBT_PROJECT_DIR)]
-    )
-    return result.success
+    Not in-process (dbtRunner): DuckDB caches one database instance per path
+    and process, so after a load task had opened md:power_<env>, dbt-duckdb's
+    connection with a different configuration was refused ("Can't open a
+    connection to same database file with a different configuration").
+    """
+    dbt = Path(sys.executable).with_name("dbt")
+    project = str(DBT_PROJECT_DIR)
+    command = [str(dbt), *args, "--project-dir", project, "--profiles-dir", project]
+    return subprocess.run(command, check=False).returncode == 0
 
 
 @task(task_run_name="dbt build ({target})")
