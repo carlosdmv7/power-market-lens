@@ -71,6 +71,79 @@ models:
       - name: loaded_at
         description: Latest load among the hour's intervals, UTC.
 
+  - name: fct_day_ahead_price_quarter_hourly
+    description: >
+      Day-ahead price at the market's native 15-minute resolution (SDAC since
+      2025-10-01), keyed in UTC and labelled with the zone's local delivery
+      date, hour and quarter (ADR-003). Only quarter-hour series are kept;
+      earlier hourly prices are in fct_day_ahead_price_hourly and are never
+      split into quarters. Grain: zone × UTC quarter-hour.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [bidding_zone_eic, period_start_utc]
+      - complete_local_days:
+          arguments:
+            partition_by: bidding_zone_eic
+            hour_column: period_start_utc
+            intervals_per_hour: 4
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: zone_code
+        description: Short zone label, e.g. ES.
+        data_tests:
+          # Null means the zone is ingested but missing from the bidding_zones seed.
+          - not_null
+      - name: period_start_utc
+        description: Start of the quarter-hour, UTC. The key; local columns are labels.
+        data_tests:
+          - not_null
+      - name: period_end_utc
+        description: End of the quarter-hour, UTC (exclusive).
+      - name: hour_start_utc
+        description: The UTC hour the quarter belongs to; joins to the hourly marts.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('fct_day_ahead_price_hourly')
+                field: hour_start_utc
+      - name: delivery_date_local
+        description: Delivery date in the zone's local time.
+        data_tests:
+          - not_null
+      - name: delivery_hour_local
+        description: Local hour of day, 0–23. Repeats 2 on the October DST change and skips it in March.
+        data_tests:
+          - not_null
+      - name: quarter_of_hour
+        description: Which quarter of the local hour, 1–4 (1 starts at :00).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4]
+                quote: false
+      - name: utc_offset_minutes
+        description: Local time minus UTC at that quarter-hour, minutes (60 or 120 in Spain).
+      - name: hours_in_delivery_day
+        description: Hours in the local delivery day, 23, 24 or 25.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [23, 24, 25]
+                quote: false
+      - name: price_eur_mwh
+        description: Day-ahead clearing price of the quarter-hour, EUR/MWh, as published.
+        data_tests:
+          - not_null
+      - name: is_price_out_of_range
+        description: True when the price is outside the SDAC limits in force on its delivery day.
+      - name: loaded_at
+        description: When the kept version was loaded, UTC.
+
   - name: fct_generation_hourly
     description: >
       Hourly generation per bidding zone and production type (and pumping
@@ -181,3 +254,25 @@ unit_tests:
       rows:
         - {hour_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, n_intervals: 4, is_complete_hour: true, price_eur_mwh: 25, has_price_out_of_range: true}
         - {hour_start_utc: "2026-07-01 11:00:00+00", resolution_minutes: 15, n_intervals: 3, is_complete_hour: false, price_eur_mwh: -5, has_price_out_of_range: false}
+
+  - name: test_quarter_hour_price_local_time_on_the_25_hour_day
+    description: >
+      2025-10-26 in Madrid: 00:45 UTC is the last quarter of local hour 2 in
+      CEST, and 01:00 UTC is the first quarter of local hour 2 again, in CET.
+      Hourly series never reach this mart.
+    model: fct_day_ahead_price_quarter_hourly
+    given:
+      - input: ref('int_day_ahead_prices__validated')
+        rows:
+          - {bidding_zone_eic: "10YES-REE------0", period_start_utc: "2025-10-26 00:45:00+00", resolution_minutes: 15, price_eur_mwh: 10}
+          - {bidding_zone_eic: "10YES-REE------0", period_start_utc: "2025-10-26 01:00:00+00", resolution_minutes: 15, price_eur_mwh: 20}
+          - {bidding_zone_eic: "10YES-REE------0", period_start_utc: "2025-10-26 01:15:00+00", resolution_minutes: 15, price_eur_mwh: 30}
+          - {bidding_zone_eic: "10YES-REE------0", period_start_utc: "2025-10-26 01:00:00+00", resolution_minutes: 60, price_eur_mwh: 999}
+      - input: ref('bidding_zones')
+        rows:
+          - {bidding_zone_eic: "10YES-REE------0", zone_code: ES, country_code: ES, country_name: Spain, timezone: Europe/Madrid}
+    expect:
+      rows:
+        - {period_start_utc: "2025-10-26 00:45:00+00", hour_start_utc: "2025-10-26 00:00:00+00", delivery_date_local: 2025-10-26, delivery_hour_local: 2, quarter_of_hour: 4, utc_offset_minutes: 120, hours_in_delivery_day: 25, price_eur_mwh: 10}
+        - {period_start_utc: "2025-10-26 01:00:00+00", hour_start_utc: "2025-10-26 01:00:00+00", delivery_date_local: 2025-10-26, delivery_hour_local: 2, quarter_of_hour: 1, utc_offset_minutes: 60, hours_in_delivery_day: 25, price_eur_mwh: 20}
+        - {period_start_utc: "2025-10-26 01:15:00+00", hour_start_utc: "2025-10-26 01:00:00+00", delivery_date_local: 2025-10-26, delivery_hour_local: 2, quarter_of_hour: 2, utc_offset_minutes: 60, hours_in_delivery_day: 25, price_eur_mwh: 30}
