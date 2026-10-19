@@ -5,12 +5,14 @@ seeds:
     description: >
       One row per bidding zone, keyed by its ENTSO-E EIC code. Maps each zone to
       its country and to the IANA time zone its delivery day is defined in, which
-      is how marts derive local dates and hours (ADR-003). Phase 0 covers Spain
-      only; Phase 1 adds the other zones.
+      is how marts derive local dates and hours (ADR-003). Since Phase 1: Spain,
+      Portugal, France, Germany–Luxembourg, the Netherlands and Italy's seven
+      zones. A zone spanning two countries (DE-LU) is filed under the larger.
     config:
       column_types:
         bidding_zone_eic: varchar
         zone_code: varchar
+        zone_name: varchar
         country_code: varchar
         country_name: varchar
         timezone: varchar
@@ -22,6 +24,11 @@ seeds:
           - not_null
       - name: zone_code
         description: Short zone label used in the app, e.g. ES, DE-LU, IT-NORD.
+        data_tests:
+          - unique
+          - not_null
+      - name: zone_name
+        description: Zone name for display, e.g. Germany–Luxembourg, Italy Centre-North.
         data_tests:
           - unique
           - not_null

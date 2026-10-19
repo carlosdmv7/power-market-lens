@@ -1,2 +1,13 @@
-bidding_zone_eic,zone_code,country_code,country_name,timezone
-10YES-REE------0,ES,ES,Spain,Europe/Madrid
+bidding_zone_eic,zone_code,zone_name,country_code,country_name,timezone
+10YES-REE------0,ES,Spain,ES,Spain,Europe/Madrid
+10YPT-REN------W,PT,Portugal,PT,Portugal,Europe/Lisbon
+10YFR-RTE------C,FR,France,FR,France,Europe/Paris
+10Y1001A1001A82H,DE-LU,Germany–Luxembourg,DE,Germany,Europe/Berlin
+10YNL----------L,NL,Netherlands,NL,Netherlands,Europe/Amsterdam
+10Y1001A1001A73I,IT-NORD,Italy North,IT,Italy,Europe/Rome
+10Y1001A1001A70O,IT-CNOR,Italy Centre-North,IT,Italy,Europe/Rome
+10Y1001A1001A71M,IT-CSUD,Italy Centre-South,IT,Italy,Europe/Rome
+10Y1001A1001A788,IT-SUD,Italy South,IT,Italy,Europe/Rome
+10Y1001C--00096J,IT-CALA,Italy Calabria,IT,Italy,Europe/Rome
+10Y1001A1001A75E,IT-SICI,Sicily,IT,Italy,Europe/Rome
+10Y1001A1001A74G,IT-SARD,Sardinia,IT,Italy,Europe/Rome
