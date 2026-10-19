@@ -84,6 +84,21 @@ class TestBackoff:
             with_backoff(call, sleep=delays.append)
         assert delays == []
 
+    def test_timeouts_and_dropped_connections_are_retried(self):
+        # entsoe-py does not retry a read timeout; without this, a Prefect task
+        # retry would re-download every chunk of a multi-year window.
+        delays = []
+        outcomes = [requests.ReadTimeout(), requests.ConnectionError(), "ok"]
+
+        def call():
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        assert with_backoff(call, base_delay_s=5, sleep=delays.append) == "ok"
+        assert delays == [5, 10]
+
     def test_gives_up_after_the_last_attempt(self):
         delays = []
 

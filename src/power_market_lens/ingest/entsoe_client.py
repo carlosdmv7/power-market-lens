@@ -8,8 +8,10 @@ wrapper adds what a backfill needs on top:
   (30 days by default). A day-ahead request returns every delivery day it
   touches, so the day that straddles a chunk boundary arrives in both chunks
   (seen on real data: identical values). Staging keeps one copy.
-- **Backoff on throttling.** entsoe-py retries only dropped connections. A 429
-  (too many requests) or a 5xx is retried here with exponential backoff.
+- **Backoff on transient failures.** A 429 (too many requests), a 5xx, a
+  timeout or a dropped connection is retried here with exponential backoff.
+  entsoe-py does not retry read timeouts, and a Prefect task retry would
+  re-download every chunk of the window, not just the one that failed.
 - **No data is not an error.** `NoMatchingDataError` for a chunk means the
   publisher has nothing for it yet, so the chunk yields no rows.
 """
@@ -56,18 +58,24 @@ def with_backoff[T](
     base_delay_s: float = 5.0,
     sleep: Callable[[float], None] = time.sleep,
 ) -> T:
-    """Run `call`, retrying throttling and server errors with exponential backoff."""
+    """Run `call`, retrying transient failures with exponential backoff."""
     for attempt in range(1, attempts + 1):
         try:
             return call()
-        except requests.HTTPError as error:
-            status = error.response.status_code if error.response is not None else None
-            if status not in RETRYABLE_STATUS or attempt == attempts:
+        except (requests.HTTPError, requests.Timeout, requests.ConnectionError) as error:
+            if not _is_transient(error) or attempt == attempts:
                 raise
             delay = base_delay_s * 2 ** (attempt - 1)
-            log.warning("ENTSO-E returned %s; retry %d in %.0fs", status, attempt, delay)
+            log.warning("ENTSO-E request failed (%r); retry %d in %.0fs", error, attempt, delay)
             sleep(delay)
     raise AssertionError("unreachable")  # the loop either returns or raises
+
+
+def _is_transient(error: requests.RequestException) -> bool:
+    if isinstance(error, requests.HTTPError):
+        status = error.response.status_code if error.response is not None else None
+        return status in RETRYABLE_STATUS
+    return True  # a timeout or a dropped connection
 
 
 class EntsoeClient:
