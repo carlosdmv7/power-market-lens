@@ -75,6 +75,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v10.3.0  # publishes no floating major tag
         with:
+          version-file: pyproject.toml  # [tool.uv] required-version
           enable-cache: true
 
       - name: Install dependencies
