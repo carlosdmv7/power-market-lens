@@ -5,7 +5,9 @@ wrapper adds what a backfill needs on top:
 
 - **Chunking.** A day-ahead request may span at most 100 documents (one per
   day) and any request at most a year, so long windows are split into chunks
-  (30 days by default).
+  (30 days by default). A day-ahead request returns every delivery day it
+  touches, so the day that straddles a chunk boundary arrives in both chunks
+  (seen on real data: identical values). Staging keeps one copy.
 - **Backoff on throttling.** entsoe-py retries only dropped connections. A 429
   (too many requests) or a 5xx is retried here with exponential backoff.
 - **No data is not an error.** `NoMatchingDataError` for a chunk means the
