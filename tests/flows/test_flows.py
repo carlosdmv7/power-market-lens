@@ -51,7 +51,7 @@ def wired(monkeypatch, tmp_path):
 def test_daily_refresh_loads_both_entities_then_builds_dbt(wired):
     database, dbt_calls = wired
 
-    counts = daily_refresh(trailing_days=7)
+    counts = daily_refresh(zones=["ES"], trailing_days=7)
 
     assert counts == {"ES/day_ahead_prices": 100, "ES/generation_per_type": 7}
     assert dbt_calls == [
@@ -71,8 +71,8 @@ def test_daily_refresh_loads_both_entities_then_builds_dbt(wired):
 def test_backfill_twice_appends_twice(wired):
     database, _ = wired
 
-    backfill(date(2025, 10, 25), date(2025, 10, 26))
-    backfill(date(2025, 10, 25), date(2025, 10, 26))
+    backfill(date(2025, 10, 25), date(2025, 10, 26), zones=["ES"])
+    backfill(date(2025, 10, 25), date(2025, 10, 26), zones=["ES"])
 
     total, distinct_points = (
         duckdb.connect(database)
@@ -102,7 +102,7 @@ def test_a_failed_load_does_not_stop_the_others(wired, monkeypatch):
     monkeypatch.setattr(tasks, "load_entity", tasks.load_entity.with_options(retries=0))
 
     with pytest.raises(RuntimeError, match=r"1 load\(s\) failed.*ES/generation_per_type"):
-        daily_refresh(trailing_days=1)
+        daily_refresh(zones=["ES"], trailing_days=1)
 
     prices = (
         duckdb.connect(database)
@@ -117,7 +117,7 @@ def test_a_failed_dbt_build_fails_the_flow(wired, monkeypatch):
     monkeypatch.setattr(tasks, "run_dbt", lambda args: args == ["deps"])
 
     with pytest.raises(RuntimeError, match="dbt build failed"):
-        daily_refresh(trailing_days=1)
+        daily_refresh(zones=["ES"], trailing_days=1)
 
 
 def test_stale_sources_fail_the_daily_run_after_the_build(wired, monkeypatch):
@@ -127,7 +127,7 @@ def test_stale_sources_fail_the_daily_run_after_the_build(wired, monkeypatch):
     )
 
     with pytest.raises(RuntimeError, match="Source freshness failed"):
-        daily_refresh(trailing_days=1)
+        daily_refresh(zones=["ES"], trailing_days=1)
     assert ["build", "--target", "dev"] in dbt_calls  # the marts were still refreshed
 
 

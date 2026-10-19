@@ -37,4 +37,9 @@ models:
 
 seeds:
   power_market_lens:
+    # Always recreate seeds. dbt-duckdb loads a seed into the existing
+    # table's columns, so adding a column to a CSV fails on every target
+    # that already has the table (CI and prod) until someone passes
+    # --full-refresh. Seeds are a few rows; recreating them costs nothing.
+    +full_refresh: true
     +schema: seeds
