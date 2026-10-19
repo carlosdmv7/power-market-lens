@@ -98,6 +98,7 @@ if prices.empty:
     st.info("No prices for these dates.")
     st.stop()
 prices = prices.assign(time=to_local(prices["hour_start_utc"]))
+time_domain = (prices["time"].min(), prices["time"].max())
 generation = data.hourly_generation(ZONE, start, end)
 grouped = mix.grouped_mix(generation.assign(time=to_local(generation["hour_start_utc"])))
 
@@ -125,7 +126,7 @@ negative.metric("Hours at or below zero", int((prices["price_eur_mwh"] <= 0).sum
 
 # ── Price ─────────────────────────────────────────────────────────────────────
 theme.section("Hourly day-ahead price")
-theme.altair_chart(charts.price_chart(prices))
+theme.altair_chart(charts.price_chart(prices, time_domain))
 st.caption(
     "Since 1 October 2025 the market clears every 15 minutes; the hourly price shown "
     "is the average of the hour's four quarter-hour prices."
@@ -142,11 +143,19 @@ theme.section("Generation by technology")
 if grouped.empty:
     st.info("No generation data for these dates.")
 else:
-    theme.altair_chart(charts.mix_chart(grouped))
-    st.caption(
+    theme.altair_chart(charts.mix_chart(grouped, time_domain))
+    caption = (
         "ENTSO-E's production types are grouped into five: hydro, biomass, waste and the "
         "remaining sources are shown together as hydro & other."
     )
+    latest_generation = grouped["time"].max()
+    if latest_generation < time_domain[1]:
+        # Prices are set a day ahead; generation is reported as it happens.
+        caption += (
+            " Generation is reported after the fact, so it runs only to "
+            f"{latest_generation:%a %d %b, %H:%M}; the prices go further ahead."
+        )
+    st.caption(caption)
 
 with st.expander("Data table", icon=":material/table:"):
     table = prices[["time", "price_eur_mwh"]].rename(

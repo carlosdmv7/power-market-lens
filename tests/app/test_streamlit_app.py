@@ -49,6 +49,8 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
             values ('B16', 'Solar', 9000.0), ('B19', 'Wind Onshore', 7000.0),
                    ('B14', 'Nuclear', 6000.0), ('B11', 'Hydro Run-of-river and poundage', 500.0)
         ) as g(psr_type, psr_name, mw)
+        -- Actual generation stops at the latest published hour; prices run on.
+        where p.hour_start_utc <= timestamptz '2026-10-17 12:00:00+00'
         """
     )
     con.close()
@@ -81,6 +83,8 @@ def test_page_renders_metrics_and_both_charts(run_page):
     assert metrics["Cheapest hour"] == "-1.00 €/MWh"
     assert len(at.get("vega_lite_chart")) == 2
     assert any("price averaged 49.25 €/MWh" in m.value for m in at.markdown)  # the lede
+    # 12:00 UTC is 14:00 in Madrid.
+    assert any("only to Sat 17 Oct, 14:00" in c.value for c in at.caption)
 
 
 def test_empty_warehouse_explains_itself(run_page):

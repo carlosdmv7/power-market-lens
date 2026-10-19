@@ -1,5 +1,9 @@
 """The page's two charts, built on the brand Altair theme registered by theme.py.
 
+The charts are read one above the other, price against mix, so both take the
+same time domain: the same hour sits at the same x in each, although actual
+generation stops at the latest published hour while prices run into tomorrow.
+
 Both share the same hover: a vertical rule follows the pointer to the nearest
 hour, and a tooltip gives the exact values, so no number has to be read off an
 axis.
@@ -14,21 +18,38 @@ TIME_FORMAT = "%a %d %b, %H:%M"
 # One tick per day: at the default density, day-formatted ticks every 12 hours
 # printed each date twice.
 DAY_AXIS = alt.Axis(format="%d %b", tickCount={"interval": "day", "step": 1})
+# The y axes get one fixed width so both plot areas start at the same x:
+# otherwise "40,000" pushes the mix chart right of the price chart's "300".
+Y_EXTENT = 52
 
 
-def price_chart(prices: pd.DataFrame) -> alt.LayerChart:
+def y_axis() -> alt.Axis:
+    return alt.Axis(minExtent=Y_EXTENT, maxExtent=Y_EXTENT)
+
+
+def _local(moment: pd.Timestamp) -> alt.DateTime:
+    # Vega reads the data's naive timestamps as wall-clock time, and so a
+    # DateTime without utc=True: the domain lands on the same hours as the data.
+    return alt.DateTime(year=moment.year, month=moment.month, date=moment.day, hours=moment.hour)
+
+
+def time_x(domain: tuple[pd.Timestamp, pd.Timestamp], **kwargs) -> alt.X:
+    """The shared x encoding: hourly times over a fixed (first, last) hour."""
+    scale = alt.Scale(domain=[_local(domain[0]), _local(domain[1])])
+    return alt.X("time:T", scale=scale, **kwargs)
+
+
+def price_chart(prices: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) -> alt.LayerChart:
     """Hourly price, one series. A zero line appears when prices go negative."""
     hover = alt.selection_point(
         fields=["time"], nearest=True, on="pointerover", clear="pointerout", empty=False
     )
-    base = alt.Chart(prices).encode(
-        x=alt.X("time:T", title=None, axis=DAY_AXIS),
-    )
-    line = base.mark_line(stroke=RUST_500, strokeWidth=2).encode(
-        y=alt.Y("price_eur_mwh:Q", title="€/MWh"),
+    base = alt.Chart(prices).encode(x=time_x(domain, title=None, axis=DAY_AXIS))
+    line = base.mark_line(stroke=RUST_500, strokeWidth=2, clip=True).encode(
+        y=alt.Y("price_eur_mwh:Q", title="€/MWh", axis=y_axis()),
     )
     targets = (
-        base.mark_point(opacity=0, size=200)
+        base.mark_point(opacity=0, size=200, clip=True)
         .encode(
             y="price_eur_mwh:Q",
             tooltip=[
@@ -38,8 +59,10 @@ def price_chart(prices: pd.DataFrame) -> alt.LayerChart:
         )
         .add_params(hover)
     )
-    rule = base.mark_rule(color=INK_MUTED).transform_filter(hover)
-    dot = line.mark_point(filled=True, size=70, color=RUST_500, stroke=SURFACE, strokeWidth=2)
+    rule = base.mark_rule(color=INK_MUTED, clip=True).transform_filter(hover)
+    dot = line.mark_point(
+        filled=True, size=70, color=RUST_500, stroke=SURFACE, strokeWidth=2, clip=True
+    )
     dot = dot.transform_filter(hover)
 
     layers = [line, rule, dot, targets]
@@ -53,7 +76,7 @@ def price_chart(prices: pd.DataFrame) -> alt.LayerChart:
     return alt.layer(*layers).properties(height=280)
 
 
-def mix_chart(mix: pd.DataFrame) -> alt.LayerChart:
+def mix_chart(mix: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) -> alt.LayerChart:
     """Stacked generation by group, in the fixed order and colours of mix.GROUPS."""
     hover = alt.selection_point(
         fields=["time"], nearest=True, on="pointerover", clear="pointerout", empty=False
@@ -73,8 +96,13 @@ def mix_chart(mix: pd.DataFrame) -> alt.LayerChart:
         alt.Chart(data)
         .mark_area(stroke=SURFACE, strokeWidth=1, opacity=1)
         .encode(
-            x=alt.X("time:T", title=None, axis=DAY_AXIS),
-            y=alt.Y("generation_mw:Q", stack="zero", title="MW (average over the hour)"),
+            x=time_x(domain, title=None, axis=DAY_AXIS),
+            y=alt.Y(
+                "generation_mw:Q",
+                stack="zero",
+                title="MW (average over the hour)",
+                axis=y_axis(),
+            ),
             color=color,
             order=order,
         )
@@ -92,7 +120,7 @@ def mix_chart(mix: pd.DataFrame) -> alt.LayerChart:
         alt.Chart(wide)
         .mark_rule(opacity=0, strokeWidth=12)
         .encode(
-            x="time:T",
+            x=time_x(domain),
             tooltip=[alt.Tooltip("time:T", title="Hour", format=TIME_FORMAT)]
             + [
                 alt.Tooltip(f"{name}:Q", title=f"{name} (MW)", format=",.0f")
@@ -101,5 +129,7 @@ def mix_chart(mix: pd.DataFrame) -> alt.LayerChart:
         )
         .add_params(hover)
     )
-    rule = alt.Chart(data).mark_rule(color=INK_MUTED).encode(x="time:T").transform_filter(hover)
+    rule = (
+        alt.Chart(data).mark_rule(color=INK_MUTED).encode(x=time_x(domain)).transform_filter(hover)
+    )
     return alt.layer(areas, rule, targets).properties(height=320)
