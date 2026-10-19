@@ -16,7 +16,7 @@ from prefect import task
 from prefect.runtime import flow_run
 
 from power_market_lens.config import Settings, load_settings
-from power_market_lens.flows.windows import Window
+from power_market_lens.flows.windows import RunWindows, Window
 from power_market_lens.ingest.entsoe_client import EntsoeClient
 from power_market_lens.ingest.jobs import load_day_ahead_prices, load_generation_per_type
 from power_market_lens.ingest.warehouse import connect, ensure_raw_tables
@@ -28,6 +28,11 @@ JOBS: dict[str, Callable[..., int]] = {
     "day_ahead_prices": load_day_ahead_prices,
     "generation_per_type": load_generation_per_type,
 }
+
+
+# Which window each entity is fetched over: day-ahead prices reach into
+# tomorrow, actual generation stops at the current hour.
+WINDOW_OF = {"day_ahead_prices": "prices", "generation_per_type": "generation"}
 
 
 def make_client(settings: Settings) -> EntsoeClient:
@@ -51,6 +56,36 @@ def load_entity(entity: str, zone_code: str, window: Window) -> int:
         ensure_raw_tables(con)
         return JOBS[entity](
             client, con, get_zone(zone_code), window.start, window.end, run_id=current_run_id()
+        )
+
+
+def load_zones(zone_codes: list[str], windows: RunWindows) -> tuple[dict[str, int], list[str]]:
+    """Run every (zone, entity) load, whatever happens to the others.
+
+    A load that still fails after its retries is recorded, not raised: one zone
+    the publisher is late on must not leave every other zone stale. The caller
+    builds dbt on what did arrive, then fails the run with `raise_for_failed`.
+    Returns the row count per "zone/entity" that loaded, and those that failed.
+    """
+    counts: dict[str, int] = {}
+    failed: list[str] = []
+    for zone_code in zone_codes:
+        for entity in JOBS:
+            window = getattr(windows, WINDOW_OF[entity])
+            state = load_entity(entity, zone_code, window, return_state=True)
+            key = f"{zone_code}/{entity}"
+            if state.is_completed():
+                counts[key] = state.result()
+            else:
+                failed.append(key)
+    return counts, failed
+
+
+def raise_for_failed(failed: list[str]) -> None:
+    if failed:
+        raise RuntimeError(
+            f"{len(failed)} load(s) failed after their retries: {', '.join(failed)}. "
+            "Every other load ran and dbt was built on it."
         )
 
 
