@@ -50,9 +50,13 @@ models:
               arguments:
                 values: [MWH]
       - name: document_mrid
-        description: ENTSO-E document the kept version came from.
+        description: >-
+          ENTSO-E response the kept version came from. Regenerated on every
+          request, so it names a download, not a version of the data.
       - name: document_created_at
-        description: When ENTSO-E created that document, UTC.
+        description: >-
+          When ENTSO-E generated the response, UTC. The platform builds a document
+          per request, so this is the request time, not when the data was published.
       - name: loaded_at
         description: When the kept version was loaded, UTC.
 
@@ -109,9 +113,13 @@ models:
         data_tests:
           - not_null
       - name: document_mrid
-        description: ENTSO-E document the kept version came from.
+        description: >-
+          ENTSO-E response the kept version came from. Regenerated on every
+          request, so it names a download, not a version of the data.
       - name: document_created_at
-        description: When ENTSO-E created that document, UTC.
+        description: >-
+          When ENTSO-E generated the response, UTC. The platform builds a document
+          per request, so this is the request time, not when the data was published.
       - name: loaded_at
         description: When the kept version was loaded, UTC.
 

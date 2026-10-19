@@ -80,6 +80,45 @@ class TestGenerationPerType:
         assert [r.period_start_utc.minute for r in pumping] == [0, 15, 45]
 
 
+class TestRecordedResponses:
+    """Real ENTSO-E responses, recorded with `make record-fixtures`."""
+
+    def test_25_hour_day_expands_91_published_points_to_100_quarter_hours(self):
+        rows = parse_day_ahead_prices(fixture("recorded_prices_a44_es_2025-10-26.xml"))
+
+        assert len(rows) == 100
+        assert rows[0].period_start_utc == datetime(2025, 10, 25, 22, 0, tzinfo=UTC)
+        assert rows[-1].period_start_utc == datetime(2025, 10, 26, 22, 45, tzinfo=UTC)
+        steps = {b.period_start_utc - a.period_start_utc for a, b in pairwise(rows)}
+        assert steps == {timedelta(minutes=15)}
+        # Position 20 is omitted, so it repeats position 19.
+        assert rows[19].price_eur_mwh == rows[18].price_eur_mwh
+        assert (rows[0].price_eur_mwh, rows[-1].price_eur_mwh) == (105.19, 88.1)
+
+    def test_23_hour_day_keeps_negative_prices(self):
+        rows = parse_day_ahead_prices(fixture("recorded_prices_a44_es_2026-03-29.xml"))
+
+        assert len(rows) == 92
+        assert {r.resolution_minutes for r in rows} == {15}
+        assert min(r.price_eur_mwh for r in rows) == -10.0
+
+    def test_generation_covers_every_series_and_pumping(self):
+        rows = parse_generation_per_type(
+            fixture("recorded_generation_a75_es_2026-10-17T10-16Z.xml")
+        )
+
+        # 23 series × 24 quarter-hours, although several series publish a
+        # single A03 point for the whole window.
+        assert len(rows) == 23 * 24
+        series = {(r.psr_type, r.flow_direction) for r in rows}
+        assert len(series) == 23
+        assert {p for p, d in series if d == "consumption"} == {"B10", "B25"}
+        pumping = [r for r in rows if (r.psr_type, r.flow_direction) == ("B10", "consumption")]
+        assert pumping[0].quantity_mw == 3696.0
+        fossil_gas = [r.quantity_mw for r in rows if r.psr_type == "B04"]
+        assert fossil_gas[:2] == [2492.0, 2344.0]
+
+
 class TestRejectsWhatItCannotTrust:
     def test_acknowledgement_raises_with_the_publisher_reason(self):
         with pytest.raises(EntsoeDocumentError, match="No matching data found"):

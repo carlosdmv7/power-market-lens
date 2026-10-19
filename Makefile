@@ -60,6 +60,10 @@ check: lint format-check lint-sql test ## Everything CI checks — run before ev
 raw-tables: ## Create the raw tables in the APP_ENV database (idempotent)
 	uv run $(ENV_FILE) python -m power_market_lens.ingest.warehouse
 
+.PHONY: record-fixtures
+record-fixtures: ## Re-record the real ENTSO-E responses the parser tests use (needs ENTSOE_API_KEY)
+	uv run $(ENV_FILE) python scripts/record_entsoe_fixtures.py
+
 # ── Flows (Prefect) ────────────────────────────────────────────────────────────
 # APP_ENV in .env picks the database. Prod is written only by the main-branch
 # pipeline, so locally these run against power_dev.

@@ -34,9 +34,13 @@ sources:
           - name: price_unit
             description: Energy unit of the price, expected MWH.
           - name: document_mrid
-            description: Identifier of the ENTSO-E document the point came from.
+            description: >-
+              Identifier of the ENTSO-E response the point came from. Regenerated on
+              every request, so it names a download, not a version of the data.
           - name: document_created_at
-            description: When ENTSO-E created that document, UTC.
+            description: >-
+              When ENTSO-E generated the response, UTC. The platform builds a document
+              per request, so this is the request time, not when the data was published.
           - name: _loaded_at
             description: When the loader appended the batch, UTC. Same for every row of a batch.
           - name: _source
@@ -70,9 +74,13 @@ sources:
           - name: quantity_mw
             description: Average power over the interval, MW.
           - name: document_mrid
-            description: Identifier of the ENTSO-E document the point came from.
+            description: >-
+              Identifier of the ENTSO-E response the point came from. Regenerated on
+              every request, so it names a download, not a version of the data.
           - name: document_created_at
-            description: When ENTSO-E created that document, UTC.
+            description: >-
+              When ENTSO-E generated the response, UTC. The platform builds a document
+              per request, so this is the request time, not when the data was published.
           - name: _loaded_at
             description: When the loader appended the batch, UTC.
           - name: _source
