@@ -12,8 +12,11 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # Recorded API responses stay byte-exact, as the API returned them.
       - id: end-of-file-fixer
+        exclude: ^tests/.*/fixtures/.*recorded_
       - id: trailing-whitespace
+        exclude: ^tests/.*/fixtures/.*recorded_
       - id: check-yaml
       - id: check-toml
       - id: check-added-large-files
