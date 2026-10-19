@@ -7,6 +7,7 @@ from pathlib import Path
 import duckdb
 from prefect.testing.utilities import prefect_test_harness
 import pytest
+import requests
 
 from power_market_lens.flows import tasks
 from power_market_lens.flows.backfill import backfill
@@ -81,6 +82,35 @@ def test_backfill_twice_appends_twice(wired):
         .fetchone()
     )
     assert (total, distinct_points) == (200, 100)
+
+
+def test_a_failed_load_does_not_stop_the_others(wired, monkeypatch):
+    database, dbt_calls = wired
+
+    class _GenerationRefused(_ReplayRawClient):
+        def query_generation(self, *_, **__):
+            response = requests.Response()
+            response.status_code = 401  # not retryable: fails at once
+            raise requests.HTTPError(response=response)
+
+    monkeypatch.setattr(
+        tasks,
+        "make_client",
+        lambda _: EntsoeClient(_GenerationRefused(), chunk_days=400, sleep=lambda _: None),
+    )
+    # No 60-second Prefect retries in a test.
+    monkeypatch.setattr(tasks, "load_entity", tasks.load_entity.with_options(retries=0))
+
+    with pytest.raises(RuntimeError, match=r"1 load\(s\) failed.*ES/generation_per_type"):
+        daily_refresh(trailing_days=1)
+
+    prices = (
+        duckdb.connect(database)
+        .execute("select count(*) from raw.entsoe_day_ahead_prices")
+        .fetchone()[0]
+    )
+    assert prices == 100  # the other entity still loaded
+    assert ["build", "--target", "dev"] in dbt_calls  # and dbt was built on it
 
 
 def test_a_failed_dbt_build_fails_the_flow(wired, monkeypatch):
