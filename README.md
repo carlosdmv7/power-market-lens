@@ -109,6 +109,10 @@ Each build runs 73 dbt nodes: seeds, models, data tests and unit tests. Among th
 - unit tests for both DST changes, for staging's deduplication, and for picking the finest
   resolution an hour was published in.
 
+After every daily build, `dbt source freshness` checks the newest interval ENTSO-E has
+delivered. A run that succeeds but brings nothing new turns the pipeline red once the data
+is 36 hours old, and logs a warning after 12.
+
 ## Quickstart
 
 ```bash

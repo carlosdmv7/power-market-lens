@@ -53,7 +53,11 @@ def test_daily_refresh_loads_both_entities_then_builds_dbt(wired):
     counts = daily_refresh(trailing_days=7)
 
     assert counts == {"ES/day_ahead_prices": 100, "ES/generation_per_type": 7}
-    assert dbt_calls == [["deps"], ["build", "--target", "dev"]]
+    assert dbt_calls == [
+        ["deps"],
+        ["build", "--target", "dev"],
+        ["source", "freshness", "--target", "dev"],
+    ]
     run_ids = (
         duckdb.connect(database)
         .execute("select distinct _run_id from raw.entsoe_day_ahead_prices")
@@ -84,6 +88,17 @@ def test_a_failed_dbt_build_fails_the_flow(wired, monkeypatch):
 
     with pytest.raises(RuntimeError, match="dbt build failed"):
         daily_refresh(trailing_days=1)
+
+
+def test_stale_sources_fail_the_daily_run_after_the_build(wired, monkeypatch):
+    _, dbt_calls = wired
+    monkeypatch.setattr(
+        tasks, "run_dbt", lambda args: dbt_calls.append(args) or args[0] != "source"
+    )
+
+    with pytest.raises(RuntimeError, match="Source freshness failed"):
+        daily_refresh(trailing_days=1)
+    assert ["build", "--target", "dev"] in dbt_calls  # the marts were still refreshed
 
 
 def test_run_dbt_reports_the_cli_exit_status():

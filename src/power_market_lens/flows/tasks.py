@@ -68,15 +68,36 @@ def run_dbt(args: list[str]) -> bool:
     return subprocess.run(command, check=False).returncode == 0
 
 
+def _export_motherduck_token() -> None:
+    # dbt reads the token from the environment for its `md:` path; locally it
+    # may only be in .env, which Settings reads but does not export.
+    settings = load_settings()
+    if settings.motherduck_token is not None:
+        os.environ.setdefault("MOTHERDUCK_TOKEN", settings.motherduck_token.get_secret_value())
+
+
 @task(task_run_name="dbt build ({target})")
 def dbt_build(target: str) -> None:
     """Install packages, then seeds, models and tests against `target`."""
-    settings = load_settings()
-    # dbt reads the token from the environment for its `md:` path; locally it
-    # may only be in .env, which Settings reads but does not export.
-    if settings.motherduck_token is not None:
-        os.environ.setdefault("MOTHERDUCK_TOKEN", settings.motherduck_token.get_secret_value())
+    _export_motherduck_token()
     if not run_dbt(["deps"]):
         raise RuntimeError("dbt deps failed")
     if not run_dbt(["build", "--target", target]):
         raise RuntimeError(f"dbt build failed on target {target}")
+
+
+@task(task_run_name="source freshness ({target})")
+def source_freshness(target: str) -> None:
+    """Fail the run when ENTSO-E has stopped delivering.
+
+    Judged on the newest delivery interval in raw (the sources' loaded_at_field),
+    so a run that succeeds but fetches nothing new still goes red once the data
+    is older than `error_after`. dbt exits 0 on `warn_after`: a warning is
+    logged, the run stays green.
+    """
+    _export_motherduck_token()
+    if not run_dbt(["source", "freshness", "--target", target]):
+        raise RuntimeError(
+            f"Source freshness failed on target {target}: the newest ENTSO-E data is "
+            "older than error_after (see the dbt output above)"
+        )
