@@ -1,0 +1,94 @@
+{
+    // F5 targets. Secrets come from .env (envFile). Every flow is pinned to
+    // APP_ENV=dev: prod is written only by the main-branch pipeline, so no
+    // local launch can touch power_prod. The app only reads, so it may.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "App (power_dev)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            // Port 8503: housing radar uses 8501 and JMI 8502.
+            "args": ["run", "app/streamlit_app.py", "--server.port=8503", "--server.headless=true"],
+            "envFile": "${workspaceFolder}/.env",
+            "env": { "WAREHOUSE_PATH": "md:power_dev" },
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "App (power_prod, read only)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "streamlit",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "args": ["run", "app/streamlit_app.py", "--server.port=8503", "--server.headless=true"],
+            "envFile": "${workspaceFolder}/.env",
+            "env": { "WAREHOUSE_PATH": "md:power_prod" },
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Flow: daily refresh (dev)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "power_market_lens.flows.daily",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "envFile": "${workspaceFolder}/.env",
+            "env": { "APP_ENV": "dev" },
+            // The temporary Prefect server and dbt run as child processes;
+            // following them would only slow the debugger down.
+            "subProcess": false,
+            "justMyCode": true,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Flow: backfill (dev)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "power_market_lens.flows.backfill",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "args": ["--start", "${input:backfillStart}", "--end", "${input:backfillEnd}"],
+            "envFile": "${workspaceFolder}/.env",
+            "env": { "APP_ENV": "dev" },
+            "subProcess": false,
+            "justMyCode": true,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Pytest (all)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "args": ["-v", "tests/"],
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Pytest (current file)",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "pytest",
+            "python": "${workspaceFolder}/.venv/bin/python",
+            "args": ["-v", "${file}"],
+            "justMyCode": false,
+            "console": "integratedTerminal"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "backfillStart",
+            "type": "promptString",
+            "description": "Backfill start date (YYYY-MM-DD, UTC day)",
+            "default": "2026-10-01"
+        },
+        {
+            "id": "backfillEnd",
+            "type": "promptString",
+            "description": "Backfill end date, inclusive (YYYY-MM-DD)",
+            "default": "2026-10-07"
+        }
+    ]
+}
