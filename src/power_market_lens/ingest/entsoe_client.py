@@ -8,10 +8,14 @@ wrapper adds what a backfill needs on top:
   (30 days by default). A day-ahead request returns every delivery day it
   touches, so the day that straddles a chunk boundary arrives in both chunks
   (seen on real data: identical values). Staging keeps one copy.
-- **Backoff on transient failures.** A 429 (too many requests), a 5xx, a
-  timeout or a dropped connection is retried here with exponential backoff.
+- **Backoff on transient failures.** A 429 (too many requests), any 5xx
+  (ENTSO-E's gateway also answers a non-standard 599), a timeout or a dropped
+  connection is retried here with exponential backoff.
   entsoe-py does not retry read timeouts, and a Prefect task retry would
   re-download every chunk of the window, not just the one that failed.
+- **The token never reaches a log.** entsoe-py's HTTP and connection errors
+  quote the request URL, security token included. Every error that leaves
+  this module, and every retry warning, has it redacted first.
 - **No data is not an error.** `NoMatchingDataError` for a chunk means the
   publisher has nothing for it yet, so the chunk yields no rows.
 """
@@ -19,6 +23,7 @@ wrapper adds what a backfill needs on top:
 from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta
 import logging
+import re
 import time
 
 from entsoe import EntsoeRawClient
@@ -33,7 +38,12 @@ from power_market_lens.zones import BiddingZone
 
 log = logging.getLogger(__name__)
 
-RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_SECURITY_TOKEN = re.compile(r"(securityToken=)[^&\s'\"]+")
+
+
+def redact(text: str) -> str:
+    """Hide the ENTSO-E security token in a URL or a message quoting one."""
+    return _SECURITY_TOKEN.sub(r"\1***", text)
 
 
 def date_chunks(
@@ -64,18 +74,30 @@ def with_backoff[T](
             return call()
         except (requests.HTTPError, requests.Timeout, requests.ConnectionError) as error:
             if not _is_transient(error) or attempt == attempts:
-                raise
+                # `from None`: the original, with the token in its message,
+                # would otherwise be printed as the context of this one.
+                raise _redacted(error) from None
             delay = base_delay_s * 2 ** (attempt - 1)
-            log.warning("ENTSO-E request failed (%r); retry %d in %.0fs", error, attempt, delay)
+            log.warning(
+                "ENTSO-E request failed (%s); retry %d in %.0fs",
+                redact(repr(error)),
+                attempt,
+                delay,
+            )
             sleep(delay)
     raise AssertionError("unreachable")  # the loop either returns or raises
 
 
 def _is_transient(error: requests.RequestException) -> bool:
     if isinstance(error, requests.HTTPError):
-        status = error.response.status_code if error.response is not None else None
-        return status in RETRYABLE_STATUS
+        status = error.response.status_code if error.response is not None else 0
+        return status == 429 or status >= 500
     return True  # a timeout or a dropped connection
+
+
+def _redacted(error: requests.RequestException) -> requests.RequestException:
+    """The same kind of error, with the security token taken out of its message."""
+    return type(error)(redact(str(error)), response=error.response)
 
 
 class EntsoeClient:

@@ -6,7 +6,12 @@ import pytest
 import requests
 
 from power_market_lens.config import Settings
-from power_market_lens.ingest.entsoe_client import EntsoeClient, date_chunks, with_backoff
+from power_market_lens.ingest.entsoe_client import (
+    EntsoeClient,
+    date_chunks,
+    redact,
+    with_backoff,
+)
 from power_market_lens.zones import get_zone
 
 FIXTURES = Path(__file__).parent / "fixtures" / "entsoe"
@@ -14,6 +19,12 @@ FIXTURES = Path(__file__).parent / "fixtures" / "entsoe"
 
 def utc(*args) -> datetime:
     return datetime(*args, tzinfo=UTC)
+
+
+def _status(code: int) -> requests.Response:
+    response = requests.Response()
+    response.status_code = code
+    return response
 
 
 def http_error(status: int) -> requests.HTTPError:
@@ -74,6 +85,20 @@ class TestBackoff:
         assert with_backoff(call, base_delay_s=5, sleep=delays.append) == "ok"
         assert delays == [5, 10]
 
+    def test_any_server_error_is_retried(self):
+        # ENTSO-E's gateway answers 599 when the platform is overloaded.
+        delays = []
+        outcomes = [http_error(599), "ok"]
+
+        def call():
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        assert with_backoff(call, base_delay_s=5, sleep=delays.append) == "ok"
+        assert delays == [5]
+
     def test_client_errors_are_not_retried(self):
         delays = []
 
@@ -108,6 +133,37 @@ class TestBackoff:
         with pytest.raises(requests.HTTPError):
             with_backoff(call, attempts=3, sleep=delays.append)
         assert delays == [5, 10]
+
+
+class TestTheTokenNeverReachesALog:
+    URL = "https://web-api.tp.entsoe.eu/api?documentType=A65&securityToken=s3cr3t-t0ken&x=1"
+
+    def test_redact_hides_the_token_only(self):
+        assert redact(self.URL) == self.URL.replace("s3cr3t-t0ken", "***")
+
+    def test_a_raised_error_does_not_carry_it(self):
+        def call():
+            raise requests.HTTPError(f"401 Client Error for url: {self.URL}", response=_status(401))
+
+        with pytest.raises(requests.HTTPError) as raised:
+            with_backoff(call, sleep=lambda _: None)
+        assert "s3cr3t-t0ken" not in str(raised.value)
+        assert raised.value.response.status_code == 401
+        assert raised.value.__suppress_context__  # the original is not printed either
+
+    def test_retry_warnings_do_not_carry_it(self, caplog):
+        outcomes = [requests.ConnectionError(f"Max retries exceeded with url: {self.URL}"), "ok"]
+
+        def call():
+            outcome = outcomes.pop(0)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with caplog.at_level("WARNING"):
+            assert with_backoff(call, sleep=lambda _: None) == "ok"
+        assert "retry 1" in caplog.text
+        assert "s3cr3t-t0ken" not in caplog.text
 
 
 class TestEntsoeClient:
