@@ -48,6 +48,12 @@ dev = [
 requires = ["uv_build>=0.11,<0.12"]
 build-backend = "uv_build"
 
+# One uv for laptop and CI: setup-uv reads this range (version-file), so a new
+# uv release cannot change CI before it is adopted here. Keep it in step with
+# uv_build above; bumping uv means bumping both.
+[tool.uv]
+required-version = ">=0.11.12,<0.12"
+
 # ══════════════════════════════════════════════════════════════════════════════
 # Ruff — lint + format
 # ══════════════════════════════════════════════════════════════════════════════
