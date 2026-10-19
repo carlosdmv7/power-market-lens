@@ -6,10 +6,13 @@ name: Pipeline
 #
 # This is the only writer of power_prod (CLAUDE.md, hard rules), which is why
 # the job refuses to run on any ref but main.
-#
-# The daily schedule is added once the first manual run has succeeded. Until
-# the ENTSO-E token exists, a cron would only fail every day.
 on:
+  # SDAC closes at 12:00 Brussels time and publishes tomorrow's prices around
+  # 12:45 (10:45 UTC in summer, 11:45 UTC in winter); ENTSO-E carries them soon
+  # after. 13:30 UTC leaves room for a delayed auction and for GitHub's own
+  # schedule lag. A scheduled run targets main and runs in daily mode.
+  schedule:
+    - cron: "30 13 * * *"
   workflow_dispatch:
     inputs:
       mode:
