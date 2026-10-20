@@ -9,10 +9,14 @@ name: Pipeline
 on:
   # SDAC closes at 12:00 Brussels time and publishes tomorrow's prices around
   # 12:45 (10:45 UTC in summer, 11:45 UTC in winter); ENTSO-E carries them soon
-  # after. 13:30 UTC leaves room for a delayed auction and for GitHub's own
-  # schedule lag. A scheduled run targets main and runs in daily mode.
+  # after. GitHub drops scheduled runs under load (a single daily slot was
+  # skipped outright on 2026-10-20), so there are six attempts, every two
+  # hours from 12:37 UTC, on an odd minute away from the busy top of the hour.
+  # A scheduled run passes --skip-if-done: the first attempt that finds
+  # tomorrow's prices missing does the work, the others exit in seconds. That
+  # also retries a late auction. A scheduled run targets main, in daily mode.
   schedule:
-    - cron: "30 13 * * *"
+    - cron: "37 12-22/2 * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -83,7 +87,15 @@ jobs:
 
       - name: Daily refresh
         if: (inputs.mode || 'daily') == 'daily'
-        run: uv run python -m power_market_lens.flows.daily
+        env:
+          EVENT: ${{ github.event_name }}
+        # A manual run always refreshes; only the scheduled attempts may skip.
+        run: |
+          if [ "$EVENT" = schedule ]; then
+            uv run python -m power_market_lens.flows.daily --skip-if-done
+          else
+            uv run python -m power_market_lens.flows.daily
+          fi
 
       - name: Backfill
         if: inputs.mode == 'backfill'
