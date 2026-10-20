@@ -4,6 +4,9 @@ The page catches nothing itself, but asserting on `at.error` as well as
 `at.exception` keeps a page that renders an error box from passing as healthy.
 """
 
+from datetime import date
+import importlib
+import json
 from pathlib import Path
 
 import duckdb
@@ -12,6 +15,21 @@ import streamlit as st
 from streamlit.testing.v1 import AppTest
 
 APP = Path(__file__).parents[2] / "app" / "streamlit_app.py"
+
+
+def add_interchange(path: Path) -> None:
+    """ES exports to FR all day; FR also seen from its own side (a modelled pair)."""
+    con = duckdb.connect(path)
+    con.execute(
+        """
+        create table marts.fct_interchange_hourly as
+        select zone_code, counterpart_code, true as is_counterpart_modelled,
+               date '2026-10-16' as delivery_date_local, net as net_import_mw
+        from (values ('ES', 'FR', -1200.0), ('FR', 'ES', 1200.0)) as v(zone_code, counterpart_code, net)
+        cross join range(24)
+        """
+    )
+    con.close()
 
 
 def make_warehouse(path: Path, with_data: bool | None) -> None:
@@ -66,9 +84,16 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
 
 @pytest.fixture
 def run_page(tmp_path, monkeypatch):
-    def run(with_data: bool | None, zone: str | None = None, page: str | None = None) -> AppTest:
-        warehouse = tmp_path / f"{with_data}-{zone}.duckdb"
+    def run(
+        with_data: bool | None,
+        zone: str | None = None,
+        page: str | None = None,
+        interchange: bool = False,
+    ) -> AppTest:
+        warehouse = tmp_path / f"{with_data}-{zone}-{interchange}.duckdb"
         make_warehouse(warehouse, with_data)
+        if interchange:
+            add_interchange(warehouse)
         monkeypatch.setenv("WAREHOUSE_PATH", str(warehouse))
         # The connection is a cached resource that lives as long as the process;
         # without this, a second test would read the first test's warehouse.
@@ -167,3 +192,47 @@ def test_map_page_on_an_empty_warehouse_explains_itself(run_page):
 
     assert not at.exception
     assert "No data in the warehouse yet" in at.info[0].value
+
+
+def test_map_page_without_the_interchange_mart_draws_no_flows(run_page):
+    at = run_page(with_data=True, page="views/map.py")
+
+    assert not at.exception
+    assert not at.toggle  # nothing to toggle
+    assert not any("Arrows show" in c.value for c in at.caption)
+
+
+def _map_layers(at: AppTest) -> int:
+    return len(json.loads(at.get("vega_lite_chart")[0].proto.spec)["layer"])
+
+
+def test_map_page_draws_flows_over_the_prices(run_page):
+    at = run_page(with_data=True, page="views/map.py", interchange=True)
+
+    assert not at.exception
+    assert at.toggle[0].value is True
+    assert any("Arrows show" in c.value for c in at.caption)
+    assert _map_layers(at) == 4  # land, zones, flow lines, arrowheads
+
+
+def test_map_flows_toggle_off_removes_the_arrows(run_page):
+    at = run_page(with_data=True, page="views/map.py", interchange=True)
+    at.toggle[0].set_value(False).run()
+
+    assert _map_layers(at) == 2
+
+
+def test_a_border_seen_from_both_sides_is_one_flow_towards_the_importer(tmp_path, monkeypatch):
+    warehouse = tmp_path / "flows.duckdb"
+    make_warehouse(warehouse, with_data=True)
+    add_interchange(warehouse)
+    monkeypatch.setenv("WAREHOUSE_PATH", str(warehouse))
+    monkeypatch.syspath_prepend(str(APP.parent))
+    st.cache_resource.clear()
+    st.cache_data.clear()
+    # The app's modules import each other by bare name, from app/.
+    data = importlib.import_module("data")
+
+    flows = data.daily_net_flows(date(2026, 10, 16))
+
+    assert flows[["source", "target", "net_mw"]].values.tolist() == [["ES", "FR", 1200.0]]
