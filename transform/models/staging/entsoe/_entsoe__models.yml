@@ -123,6 +123,59 @@ models:
       - name: loaded_at
         description: When the kept version was loaded, UTC.
 
+  - name: stg_entsoe__crossborder_flows
+    description: >
+      Physical flows per direction of a border at native resolution,
+      deduplicated to the latest published version. Grain: out zone × in zone
+      × interval start × resolution.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              [out_zone_eic, in_zone_eic, period_start_utc, resolution_minutes]
+    columns:
+      - name: out_zone_eic
+        description: EIC code of the zone the flow leaves.
+        data_tests:
+          - not_null
+      - name: in_zone_eic
+        description: EIC code of the zone the flow enters.
+        data_tests:
+          - not_null
+      - name: period_start_utc
+        description: Start of the interval, UTC.
+        data_tests:
+          - not_null
+      - name: period_end_utc
+        description: End of the interval, UTC (exclusive).
+      - name: resolution_minutes
+        description: Length of the interval in minutes.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [15, 30, 60]
+                quote: false
+      - name: flow_mw
+        description: Average physical flow in this direction over the interval, MW.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                # Each direction is its own series; a negative value would
+                # mean the publisher netted the border.
+                min_value: 0
+      - name: document_mrid
+        description: >-
+          ENTSO-E response the kept version came from. Regenerated on every
+          request, so it names a download, not a version of the data.
+      - name: document_created_at
+        description: >-
+          When ENTSO-E generated the response, UTC. The platform builds a document
+          per request, so this is the request time, not when the data was published.
+      - name: loaded_at
+        description: When the kept version was loaded, UTC.
+
 unit_tests:
   - name: test_stg_day_ahead_prices_keeps_the_latest_load
     description: >
