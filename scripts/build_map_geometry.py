@@ -160,6 +160,18 @@ def assemble(admin_1: dict) -> tuple[dict, dict]:
     return dissolve(zone_parts), dissolve(context_parts)
 
 
+def anchor(geometry: shapely.Geometry) -> tuple[float, float]:
+    """Where the flow arrows meet a zone: a point inside its largest part.
+
+    The largest part, so Greece anchors on the mainland, not on Crete; a
+    representative point, not the centroid, which can fall outside a
+    concave shape.
+    """
+    largest = max(shapely.get_parts(geometry), key=lambda part: part.area)
+    point = largest.representative_point()
+    return round(point.x, DECIMALS), round(point.y, DECIMALS)
+
+
 def main() -> None:
     zones, context = assemble(download(ADMIN_1))
 
@@ -173,6 +185,7 @@ def main() -> None:
     for name, geometry in zip(names, simplified, strict=True):
         role = "context" if name in context else "modelled" if name in MODELLED else "neighbour"
         rounded = shapely.set_precision(geometry, 10**-DECIMALS)
+        lon, lat = anchor(rounded) if role != "context" else (None, None)
         features.append(
             {
                 "type": "Feature",
@@ -180,6 +193,8 @@ def main() -> None:
                     "zone_code": name if role != "context" else None,
                     "name": name,
                     "role": role,
+                    "anchor_lon": lon,
+                    "anchor_lat": lat,
                 },
                 "geometry": mapping(rounded),
             }

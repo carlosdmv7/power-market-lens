@@ -30,3 +30,11 @@ def test_every_shape_is_a_non_empty_polygon():
         geometry = feature["geometry"]
         assert geometry["type"] in {"Polygon", "MultiPolygon"}, feature["properties"]
         assert geometry["coordinates"], feature["properties"]
+
+
+def test_every_zone_and_neighbour_has_an_anchor_for_the_flow_arrows():
+    for feature in json.loads(GEOMETRY.read_text())["features"]:
+        properties = feature["properties"]
+        if properties["role"] != "context":
+            assert -11 < properties["anchor_lon"] < 30, properties
+            assert 34 < properties["anchor_lat"] < 63, properties
