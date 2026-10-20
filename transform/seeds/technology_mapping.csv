@@ -1,0 +1,26 @@
+psr_type,technology,display_group,is_renewable,is_low_carbon,is_storage,factor_technology,is_proxy_factor,note
+B01,Biomass,Hydro & other,true,true,false,Biomass — dedicated,false,
+B02,Lignite,Fossil,false,false,false,Coal — PC,true,AR5 has no lignite row; hard coal is a lower bound for lignite.
+B03,Coal-derived gas,Fossil,false,false,false,Coal — PC,true,AR5 has no row; gas made from coal is counted as coal.
+B04,Fossil gas,Fossil,false,false,false,Gas — Combined Cycle,false,Open-cycle units emit more than the combined-cycle median.
+B05,Hard coal,Fossil,false,false,false,Coal — PC,false,
+B06,Oil,Fossil,false,false,false,Coal — PC,true,"AR5 has no oil row; counted as coal, like every fossil type without its own row."
+B07,Oil shale,Fossil,false,false,false,Coal — PC,true,AR5 has no oil shale row; counted as coal.
+B08,Peat,Fossil,false,false,false,Coal — PC,true,AR5 has no peat row; counted as coal.
+B09,Geothermal,Hydro & other,true,true,false,Geothermal,false,
+B10,Pumped storage,Hydro & other,false,false,true,,false,Storage re-delivers energy produced earlier; excluded from production-based intensity.
+B11,Run-of-river hydro,Hydro & other,true,true,false,Hydropower,false,
+B12,Reservoir hydro,Hydro & other,true,true,false,Hydropower,false,
+B13,Marine,Hydro & other,true,true,false,Ocean,false,
+B14,Nuclear,Nuclear,false,true,false,Nuclear,false,
+B15,Other renewable,Hydro & other,true,true,false,Biomass — dedicated,true,Mostly biogas and biomass in the modelled zones.
+B16,Solar,Solar,true,true,false,Solar PV — utility,false,AR5 utility-scale PV; rooftop is 41.
+B17,Waste,Hydro & other,false,false,false,Biomass — dedicated,true,AR5 has no waste row; only part of waste is biogenic. Not counted as renewable.
+B18,Wind offshore,Wind,true,true,false,Wind offshore,false,
+B19,Wind onshore,Wind,true,true,false,Wind onshore,false,
+B20,Other,Hydro & other,false,false,false,Gas — Combined Cycle,true,Unspecified; mostly gas-fired cogeneration in ES and IT.
+B21,AC link,,false,false,false,,false,Network element; never a generation type.
+B22,DC link,,false,false,false,,false,Network element; never a generation type.
+B23,Substation,,false,false,false,,false,Network element; never a generation type.
+B24,Transformer,,false,false,false,,false,Network element; never a generation type.
+B25,Energy storage,Hydro & other,false,false,true,,false,Storage re-delivers energy produced earlier; excluded from production-based intensity.

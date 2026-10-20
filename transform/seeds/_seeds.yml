@@ -82,8 +82,8 @@ seeds:
   - name: entsoe_psr_types
     description: >
       ENTSO-E production (PSR) type codes and their names, as used by the
-      actual generation per production type document (A75). Grouping into
-      technologies, renewable flags and emission factors come in Phase 1.
+      actual generation per production type document (A75). Their grouping
+      into technologies, flags and emission factors is technology_mapping.
     config:
       column_types:
         psr_type: varchar
@@ -94,8 +94,108 @@ seeds:
         data_tests:
           - unique
           - not_null
+          # Every code is classified: a type missing from the mapping would
+          # drop out of every share and intensity.
+          - relationships:
+              arguments:
+                to: ref('technology_mapping')
+                field: psr_type
       - name: psr_name
         description: ENTSO-E's English name for the production type.
         data_tests:
           - unique
           - not_null
+
+  - name: technology_mapping
+    description: >
+      What each ENTSO-E production type is (ADR-004): its technology, the app's
+      display group, whether it is renewable, low-carbon or storage, and which
+      IPCC AR5 lifecycle factor it takes. A type with no AR5 row of its own
+      takes a stated proxy and is flagged, so every carbon intensity can say
+      how much of it rests on proxies.
+    config:
+      column_types:
+        psr_type: varchar
+        technology: varchar
+        display_group: varchar
+        is_renewable: boolean
+        is_low_carbon: boolean
+        is_storage: boolean
+        factor_technology: varchar
+        is_proxy_factor: boolean
+        note: varchar
+    columns:
+      - name: psr_type
+        description: ENTSO-E PSR type code, B01 to B25.
+        data_tests:
+          - unique
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('entsoe_psr_types')
+                field: psr_type
+      - name: technology
+        description: Short technology name for display.
+        data_tests:
+          - not_null
+      - name: display_group
+        description: >-
+          One of the five groups the app colours (Nuclear, Fossil, Hydro & other,
+          Solar, Wind); null for network elements, which never generate.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Nuclear, Fossil, Hydro & other, Solar, Wind]
+      - name: is_renewable
+        description: Renewable source. Waste and pumped storage are not.
+        data_tests:
+          - not_null
+      - name: is_low_carbon
+        description: Renewable or nuclear.
+        data_tests:
+          - not_null
+      - name: is_storage
+        description: Re-delivers stored energy (pumped hydro, batteries); left out of production-based shares and intensity.
+        data_tests:
+          - not_null
+      - name: factor_technology
+        description: The AR5 row whose lifecycle factor applies; null for storage and network elements.
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('emission_factors_ipcc_ar5')
+                field: technology
+      - name: is_proxy_factor
+        description: True when AR5 has no row for this type and another row stands in for it.
+        data_tests:
+          - not_null
+      - name: note
+        description: Why a proxy or a classification was chosen.
+
+  - name: emission_factors_ipcc_ar5
+    description: >
+      Lifecycle greenhouse-gas emissions of electricity supply technologies,
+      including the albedo effect, in gCO2eq per kWh: IPCC AR5 Working Group
+      III, Annex III, Table A.III.2 (2014), "Currently commercially available
+      technologies" plus Ocean, copied as printed. Lifecycle, not direct: the
+      direct-emission medians are lower (coal 760, gas 370).
+    config:
+      column_types:
+        technology: varchar
+        lifecycle_min_g_per_kwh: double
+        lifecycle_median_g_per_kwh: double
+        lifecycle_max_g_per_kwh: double
+    columns:
+      - name: technology
+        description: Technology as named in the IPCC table.
+        data_tests:
+          - unique
+          - not_null
+      - name: lifecycle_min_g_per_kwh
+        description: Minimum of the reviewed literature, gCO2eq/kWh.
+      - name: lifecycle_median_g_per_kwh
+        description: Median of the reviewed literature, gCO2eq/kWh. The value the marts use.
+        data_tests:
+          - not_null
+      - name: lifecycle_max_g_per_kwh
+        description: Maximum of the reviewed literature, gCO2eq/kWh.
