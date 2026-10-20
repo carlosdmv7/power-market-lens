@@ -97,10 +97,27 @@ def hourly_prices(zone_code: str, start: date, end: date) -> pd.DataFrame:
 def hourly_generation(zone_code: str, start: date, end: date) -> pd.DataFrame:
     return _query(
         """
-        select hour_start_utc, utc_offset_minutes, psr_type, psr_name, generation_mw
+        select hour_start_utc, utc_offset_minutes, psr_type, psr_name, display_group,
+               generation_mw
         from marts.fct_generation_hourly
         where zone_code = ? and delivery_date_local between ? and ?
             and generation_mw is not null
+        order by hour_start_utc
+        """,
+        [zone_code, start, end],
+    )
+
+
+@st.cache_data(ttl=CACHE_TTL_S)
+def hourly_mix_metrics(zone_code: str, start: date, end: date) -> pd.DataFrame:
+    """Renewable and low-carbon share and carbon intensity per hour (ADR-004)."""
+    return _query(
+        """
+        select hour_start_utc, utc_offset_minutes, production_mw, renewable_share,
+               low_carbon_share, carbon_intensity_g_per_kwh, proxy_factor_share
+        from marts.fct_generation_mix_hourly
+        where zone_code = ? and delivery_date_local between ? and ?
+            and production_mw > 0
         order by hour_start_utc
         """,
         [zone_code, start, end],
