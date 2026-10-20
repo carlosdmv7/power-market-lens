@@ -1,17 +1,17 @@
-"""Generation mix for display: ENTSO-E production types folded into five groups.
+"""Generation mix for display: the five groups of the technology_mapping seed.
 
-The brand allows at most five categorical colours, and Spain reports around
-fifteen production types, so the chart shows groups. Each group keeps the same
-colour whatever the date range: colour follows the entity, never its rank, so
-changing the dates never repaints a surviving series.
+The brand allows at most five categorical colours, and a zone reports around
+fifteen production types, so the chart shows groups. Which type belongs to
+which group is decided in dbt (technology_mapping.display_group, ADR-004) and
+arrives with the mart; this module only fixes their order and colours. Each
+group keeps the same colour whatever the date range: colour follows the
+entity, never its rank, so changing the dates never repaints a surviving series.
 
 The stack order was chosen with the palette validator (OKLab ΔE under
 protanopia and deuteranopia, plus unsimulated vision): every pair of groups
 that touch in the stack is told apart. Rust and amber, the brand's closest
 pair, never touch. Rust, the accent, marks fossil generation, the technology
 that most often sets the price.
-
-Phase 1 replaces this display grouping with a technology-mapping seed in dbt.
 """
 
 import pandas as pd
@@ -30,21 +30,13 @@ GROUPS: list[tuple[str, str]] = [
 GROUP_ORDER = [name for name, _ in GROUPS]
 GROUP_COLORS = [color for _, color in GROUPS]
 
-_GROUP_OF_PSR = {
-    "B14": "Nuclear",
-    **dict.fromkeys(["B02", "B03", "B04", "B05", "B06", "B07", "B08"], "Fossil"),
-    "B16": "Solar",
-    **dict.fromkeys(["B18", "B19"], "Wind"),
-}
-DEFAULT_GROUP = "Hydro & other"  # hydro, biomass, waste, geothermal, marine, other
-
-
-def group_of(psr_type: str) -> str:
-    return _GROUP_OF_PSR.get(psr_type, DEFAULT_GROUP)
-
 
 def grouped_mix(generation: pd.DataFrame) -> pd.DataFrame:
     """Hourly generation per group, long format: time, group, generation_mw, share.
+
+    `generation` carries the mart's display_group. A group outside the five
+    means the seed changed without this module: fail, rather than draw a
+    series in no colour.
 
     Types are summed within each UTC hour, then hours sharing a local `time`
     are averaged: on the October DST change 02:00 happens twice, and summing
@@ -52,8 +44,12 @@ def grouped_mix(generation: pd.DataFrame) -> pd.DataFrame:
     """
     if generation.empty:
         return pd.DataFrame(columns=["time", "group", "generation_mw", "share"])
+    unknown = set(generation["display_group"].dropna()) - set(GROUP_ORDER)
+    if unknown:
+        raise ValueError(f"Display groups without a colour: {sorted(unknown)}")
     grouped = (
-        generation.assign(group=generation["psr_type"].map(group_of))
+        generation.rename(columns={"display_group": "group"})
+        .dropna(subset=["group"])
         .groupby(["hour_start_utc", "time", "group"], as_index=False)["generation_mw"]
         .sum()
         .groupby(["time", "group"], as_index=False)["generation_mw"]

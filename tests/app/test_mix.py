@@ -2,24 +2,40 @@ from pathlib import Path
 import sys
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "app"))
 
 import mix  # noqa: E402
 
+# The mart's grouping, as the technology_mapping seed sets it (ADR-004).
+GROUP_OF = {
+    "B04": "Fossil",
+    "B05": "Fossil",
+    "B11": "Hydro & other",
+    "B14": "Nuclear",
+    "B16": "Solar",
+    "B18": "Wind",
+    "B19": "Wind",
+}
+
 
 def generation(rows):
     frame = pd.DataFrame(rows, columns=["time", "psr_type", "generation_mw"])
-    return frame.assign(hour_start_utc=frame["time"])  # no DST change: one hour per time
+    # No DST change: one UTC hour per local time.
+    return frame.assign(display_group=frame["psr_type"].map(GROUP_OF), hour_start_utc=frame["time"])
 
 
-def test_every_production_type_lands_in_exactly_one_of_five_groups():
-    codes = [f"B{n:02d}" for n in range(1, 26)]
-
-    groups = {mix.group_of(code) for code in codes}
-
-    assert groups == set(mix.GROUP_ORDER)
+def test_five_groups_at_most():
     assert len(mix.GROUPS) == 5  # the brand's categorical limit
+
+
+def test_a_group_without_a_colour_fails_loudly():
+    t = pd.Timestamp("2026-10-11 12:00")
+    frame = generation([(t, "B16", 1.0)]).assign(display_group="Storage")
+
+    with pytest.raises(ValueError, match="Storage"):
+        mix.grouped_mix(frame)
 
 
 def test_groups_sum_their_types_and_shares_add_up():
@@ -71,6 +87,7 @@ def test_the_repeated_dst_hour_is_averaged_not_summed():
             "hour_start_utc": pd.to_datetime(["2026-10-25 00:00", "2026-10-25 01:00"] * 2),
             "time": [local] * 4,
             "psr_type": ["B14", "B14", "B16", "B16"],
+            "display_group": ["Nuclear", "Nuclear", "Solar", "Solar"],
             "generation_mw": [7000.0, 7100.0, 0.0, 0.0],
         }
     )
