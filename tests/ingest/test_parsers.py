@@ -6,12 +6,15 @@ import pytest
 
 from power_market_lens.ingest.parsers import (
     EntsoeDocumentError,
+    parse_crossborder_flows,
     parse_day_ahead_prices,
     parse_generation_per_type,
+    parse_total_load,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "entsoe"
 ES = "10YES-REE------0"
+FR = "10YFR-RTE------C"
 
 
 def fixture(name: str) -> str:
@@ -137,6 +140,58 @@ class TestDayAheadAuctionSequences:
         assert len(rows) == 24
         assert {r.resolution_minutes for r in rows} == {60}
         assert rows[0].price_eur_mwh == 48.39
+
+
+class TestTotalLoad:
+    def test_actual_load_on_the_23_hour_day(self):
+        rows = parse_total_load(fixture("recorded_load_a65_actual_es_2026-03-29.xml"))
+
+        assert len(rows) == 92
+        assert {(r.bidding_zone_eic, r.process_type, r.resolution_minutes) for r in rows} == {
+            (ES, "A16", 15)
+        }
+        assert rows[0].period_start_utc == datetime(2026, 3, 28, 23, 0, tzinfo=UTC)
+        assert [r.load_mw for r in rows[:3]] == [23872.0, 23288.0, 22912.0]
+
+    def test_the_day_ahead_forecast_is_told_apart_by_process_type(self):
+        rows = parse_total_load(fixture("recorded_load_a65_forecast_es_2026-03-29.xml"))
+
+        assert len(rows) == 92
+        assert {r.process_type for r in rows} == {"A01"}
+        assert rows[0].load_mw == 24207.0
+
+    def test_portugal_reports_load_hourly(self):
+        rows = parse_total_load(fixture("recorded_load_a65_actual_pt_2026-03-29.xml"))
+
+        assert len(rows) == 23
+        assert {r.resolution_minutes for r in rows} == {60}
+
+    def test_a_generation_document_is_not_load(self):
+        with pytest.raises(EntsoeDocumentError, match="Expected document type A65, got A75"):
+            parse_total_load(fixture("recorded_generation_a75_es_2026-10-17T10-16Z.xml"))
+
+
+class TestCrossBorderFlows:
+    def test_one_direction_of_a_border(self):
+        rows = parse_crossborder_flows(fixture("recorded_flows_a11_es-fr_2026-03-29.xml"))
+
+        assert len(rows) == 92
+        assert {(r.out_zone_eic, r.in_zone_eic) for r in rows} == {(ES, FR)}
+        assert [r.flow_mw for r in rows[:2]] == [3149.44, 3386.04]
+
+    def test_a_direction_without_flow_is_one_a03_point_filled_to_zero(self):
+        # Spain exported all day: France → Spain is published as a single
+        # point, which must still expand to every quarter-hour.
+        rows = parse_crossborder_flows(fixture("recorded_flows_a11_fr-es_2026-03-29.xml"))
+
+        assert len(rows) == 92
+        assert {r.flow_mw for r in rows} == {0.0}
+        assert {(r.out_zone_eic, r.in_zone_eic) for r in rows} == {(FR, ES)}
+
+    def test_a_price_document_is_not_a_flow(self):
+        # Same root element (Publication_MarketDocument): only <type> differs.
+        with pytest.raises(EntsoeDocumentError, match="Expected document type A11, got A44"):
+            parse_crossborder_flows(fixture("recorded_prices_a44_es_2026-03-29.xml"))
 
 
 class TestRejectsWhatItCannotTrust:

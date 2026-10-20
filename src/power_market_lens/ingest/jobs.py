@@ -53,3 +53,45 @@ def load_generation_per_type(
         window_end=end,
         run_id=run_id,
     )
+
+
+def load_total_load_actual(
+    client: EntsoeClient,
+    con: duckdb.DuckDBPyConnection,
+    zone: BiddingZone,
+    start: datetime,
+    end: datetime,
+    *,
+    run_id: str,
+) -> int:
+    rows = client.total_load(zone, start, end, forecast=False)
+    return append_rows(
+        con,
+        "entsoe_total_load",
+        rows,
+        source="entsoe:A65/A16",
+        window_start=start,
+        window_end=end,
+        run_id=run_id,
+    )
+
+
+def load_total_load_forecast(
+    client: EntsoeClient,
+    con: duckdb.DuckDBPyConnection,
+    zone: BiddingZone,
+    start: datetime,
+    end: datetime,
+    *,
+    run_id: str,
+) -> int:
+    rows = client.total_load(zone, start, end, forecast=True)
+    return append_rows(
+        con,
+        "entsoe_total_load",
+        rows,
+        source="entsoe:A65/A01",
+        window_start=start,
+        window_end=end,
+        run_id=run_id,
+    )

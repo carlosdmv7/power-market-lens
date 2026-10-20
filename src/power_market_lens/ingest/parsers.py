@@ -23,10 +23,18 @@ from datetime import datetime, timedelta
 import re
 import xml.etree.ElementTree as ET
 
-from power_market_lens.ingest.models import DayAheadPriceRow, GenerationRow
+from power_market_lens.ingest.models import (
+    CrossBorderFlowRow,
+    DayAheadPriceRow,
+    GenerationRow,
+    TotalLoadRow,
+)
 
-PRICE_DOCUMENT = "Publication_MarketDocument"
-GENERATION_DOCUMENT = "GL_MarketDocument"
+# Two document families: prices and flows are publication documents, generation
+# and load are GL (generation and load) documents. Within a family, <type>
+# tells them apart, so every parser checks it.
+PUBLICATION_DOCUMENT = "Publication_MarketDocument"
+GL_DOCUMENT = "GL_MarketDocument"
 ACKNOWLEDGEMENT_DOCUMENT = "Acknowledgement_MarketDocument"
 
 _RESOLUTION = re.compile(r"^PT(?P<value>\d+)(?P<unit>[MH])$")
@@ -37,7 +45,7 @@ class EntsoeDocumentError(ValueError):
 
 
 def parse_day_ahead_prices(xml_text: str) -> list[DayAheadPriceRow]:
-    root = _parse_root(xml_text, expected=PRICE_DOCUMENT)
+    root = _parse_root(xml_text, expected=PUBLICATION_DOCUMENT, document_type="A44")
     mrid, created_at = _document_metadata(root)
 
     sequences = {
@@ -75,7 +83,7 @@ def parse_day_ahead_prices(xml_text: str) -> list[DayAheadPriceRow]:
 
 
 def parse_generation_per_type(xml_text: str) -> list[GenerationRow]:
-    root = _parse_root(xml_text, expected=GENERATION_DOCUMENT)
+    root = _parse_root(xml_text, expected=GL_DOCUMENT, document_type="A75")
     mrid, created_at = _document_metadata(root)
 
     rows = []
@@ -91,10 +99,7 @@ def parse_generation_per_type(xml_text: str) -> list[GenerationRow]:
             )
         zone, direction = (in_zone, "generation") if in_zone else (out_zone, "consumption")
 
-        unit = _text(series, "quantity_Measure_Unit.name")
-        if unit != "MAW":
-            raise EntsoeDocumentError(f"Expected quantities in MAW (megawatts), got {unit!r}")
-
+        _expect_megawatts(series)
         psr_type = _text(_child(series, "MktPSRType"), "psrType")
         curve_type = _text(series, "curveType", default="A01")
         for period in _children(series, "Period"):
@@ -112,6 +117,72 @@ def parse_generation_per_type(xml_text: str) -> list[GenerationRow]:
                     )
                 )
     return rows
+
+
+def parse_total_load(xml_text: str) -> list[TotalLoadRow]:
+    """Actual total load (process A16) or its day-ahead forecast (A01)."""
+    root = _parse_root(xml_text, expected=GL_DOCUMENT, document_type="A65")
+    mrid, created_at = _document_metadata(root)
+    process_type = _text(root, "process.processType")
+    if process_type not in {"A16", "A01"}:
+        raise EntsoeDocumentError(
+            f"Expected total load as realised (A16) or day-ahead forecast (A01), "
+            f"got process type {process_type!r}"
+        )
+
+    rows = []
+    for series in _children(root, "TimeSeries"):
+        # Load is reported as consumption out of the zone.
+        zone = _text(series, "outBiddingZone_Domain.mRID")
+        _expect_megawatts(series)
+        curve_type = _text(series, "curveType", default="A01")
+        for period in _children(series, "Period"):
+            for start, resolution, value in _expand_period(period, "quantity", curve_type):
+                rows.append(
+                    TotalLoadRow(
+                        bidding_zone_eic=zone,
+                        process_type=process_type,
+                        period_start_utc=start,
+                        resolution_minutes=resolution,
+                        load_mw=value,
+                        document_mrid=mrid,
+                        document_created_at=created_at,
+                    )
+                )
+    return rows
+
+
+def parse_crossborder_flows(xml_text: str) -> list[CrossBorderFlowRow]:
+    """Physical flows (A11), one non-negative series per direction."""
+    root = _parse_root(xml_text, expected=PUBLICATION_DOCUMENT, document_type="A11")
+    mrid, created_at = _document_metadata(root)
+
+    rows = []
+    for series in _children(root, "TimeSeries"):
+        out_zone = _text(series, "out_Domain.mRID")
+        in_zone = _text(series, "in_Domain.mRID")
+        _expect_megawatts(series)
+        curve_type = _text(series, "curveType", default="A01")
+        for period in _children(series, "Period"):
+            for start, resolution, value in _expand_period(period, "quantity", curve_type):
+                rows.append(
+                    CrossBorderFlowRow(
+                        out_zone_eic=out_zone,
+                        in_zone_eic=in_zone,
+                        period_start_utc=start,
+                        resolution_minutes=resolution,
+                        flow_mw=value,
+                        document_mrid=mrid,
+                        document_created_at=created_at,
+                    )
+                )
+    return rows
+
+
+def _expect_megawatts(series: ET.Element) -> None:
+    unit = _text(series, "quantity_Measure_Unit.name")
+    if unit != "MAW":
+        raise EntsoeDocumentError(f"Expected quantities in MAW (megawatts), got {unit!r}")
 
 
 # ── Period expansion ──────────────────────────────────────────────────────────
@@ -177,7 +248,7 @@ def _parse_utc(text: str) -> datetime:
 # ── XML helpers (namespace-agnostic) ──────────────────────────────────────────
 
 
-def _parse_root(xml_text: str, expected: str) -> ET.Element:
+def _parse_root(xml_text: str, expected: str, document_type: str) -> ET.Element:
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError as error:
@@ -189,6 +260,9 @@ def _parse_root(xml_text: str, expected: str) -> ET.Element:
         raise EntsoeDocumentError(f"ENTSO-E acknowledged the request without data: {reason}")
     if name != expected:
         raise EntsoeDocumentError(f"Expected a {expected}, got a {name}")
+    found_type = _text(root, "type")
+    if found_type != document_type:
+        raise EntsoeDocumentError(f"Expected document type {document_type}, got {found_type}")
     return root
 
 

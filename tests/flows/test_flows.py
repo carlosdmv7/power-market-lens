@@ -24,6 +24,12 @@ class _ReplayRawClient:
     def query_generation(self, *_, **__):
         return (FIXTURES / "synthetic_generation_per_type.xml").read_text()
 
+    def query_load(self, *_, **__):
+        return (FIXTURES / "recorded_load_a65_actual_es_2026-03-29.xml").read_text()
+
+    def query_load_forecast(self, *_, **__):
+        return (FIXTURES / "recorded_load_a65_forecast_es_2026-03-29.xml").read_text()
+
 
 @pytest.fixture(scope="module", autouse=True)
 def prefect_server():
@@ -53,7 +59,12 @@ def test_daily_refresh_loads_both_entities_then_builds_dbt(wired):
 
     counts = daily_refresh(zones=["ES"], trailing_days=7)
 
-    assert counts == {"ES/day_ahead_prices": 100, "ES/generation_per_type": 7}
+    assert counts == {
+        "ES/day_ahead_prices": 100,
+        "ES/generation_per_type": 7,
+        "ES/total_load_actual": 92,
+        "ES/total_load_forecast": 92,
+    }
     assert dbt_calls == [
         ["deps"],
         ["build", "--target", "dev"],
