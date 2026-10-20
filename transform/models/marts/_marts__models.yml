@@ -120,6 +120,19 @@ models:
         data_tests:
           # Null means a code missing from the entsoe_psr_types seed.
           - not_null
+      - name: technology
+        description: Short technology name from the technology_mapping seed, e.g. Wind onshore.
+        data_tests:
+          # Null means a code missing from the technology_mapping seed.
+          - not_null
+      - name: display_group
+        description: >-
+          The app's five generation groups (Nuclear, Fossil, Hydro & other,
+          Solar, Wind), from the technology_mapping seed (ADR-004).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Nuclear, Fossil, Hydro & other, Solar, Wind]
       - name: generation_mw
         description: Mean generation over the hour, MW (= MWh over a complete hour).
       - name: consumption_mw
