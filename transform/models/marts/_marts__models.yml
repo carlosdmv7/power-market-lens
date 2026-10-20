@@ -131,6 +131,65 @@ models:
       - name: loaded_at
         description: Latest load among the hour's intervals, UTC.
 
+  - name: fct_load_hourly
+    description: >
+      Hourly total load per bidding zone, actual and the TSO's day-ahead
+      forecast, keyed in UTC with local delivery date and hour (ADR-003).
+      Hours still ahead carry the forecast only. Grain: zone × UTC hour.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [bidding_zone_eic, hour_start_utc]
+      - complete_local_days:
+          arguments:
+            partition_by: bidding_zone_eic
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: zone_code
+        description: Short zone label, e.g. ES.
+        data_tests:
+          - not_null
+      - name: hour_start_utc
+        description: Start of the hour, UTC. The key; local columns are labels.
+        data_tests:
+          - not_null
+      - name: delivery_date_local
+        description: Date in the zone's local time.
+        data_tests:
+          - not_null
+      - name: delivery_hour_local
+        description: Local hour of day, 0–23 (repeats or skips 2 on DST changes).
+      - name: utc_offset_minutes
+        description: Local time minus UTC at that hour, minutes.
+      - name: hours_in_delivery_day
+        description: Hours in the local day, 23, 24 or 25.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [23, 24, 25]
+                quote: false
+      - name: actual_load_mw
+        description: Mean actual total load over the hour, MW (= MWh over a complete hour).
+        data_tests:
+          # Actual load arrives within hours; older gaps are real gaps.
+          - not_null:
+              config:
+                severity: warn
+                where: "hour_start_utc < now() - interval 2 day"
+      - name: forecast_load_mw
+        description: Mean day-ahead forecast of total load over the hour, MW.
+      - name: forecast_error_mw
+        description: Forecast minus actual, MW; positive when the TSO expected more load.
+      - name: resolution_minutes
+        description: Finest native resolution among the hour's intervals.
+      - name: n_actual_intervals
+        description: Number of actual-load intervals averaged into the hour.
+      - name: loaded_at
+        description: Latest load among the hour's intervals, UTC.
+
 unit_tests:
   - name: test_fct_price_local_time_across_both_dst_changes
     description: >
@@ -181,3 +240,27 @@ unit_tests:
       rows:
         - {hour_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, n_intervals: 4, is_complete_hour: true, price_eur_mwh: 25, has_price_out_of_range: true}
         - {hour_start_utc: "2026-07-01 11:00:00+00", resolution_minutes: 15, n_intervals: 3, is_complete_hour: false, price_eur_mwh: -5, has_price_out_of_range: false}
+
+  - name: test_hourly_load_puts_actual_and_forecast_side_by_side
+    description: >
+      An hour with four actual quarter-hours and a forecast published both
+      quarter-hourly and hourly: the actual is their mean, the forecast uses
+      the quarter-hours only. The next hour has a forecast and no actual yet.
+    model: int_total_load__aggregated_hourly
+    given:
+      - input: ref('stg_entsoe__total_load')
+        rows:
+          - {bidding_zone_eic: Z, load_kind: actual, period_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, load_mw: 100}
+          - {bidding_zone_eic: Z, load_kind: actual, period_start_utc: "2026-07-01 10:15:00+00", resolution_minutes: 15, load_mw: 200}
+          - {bidding_zone_eic: Z, load_kind: actual, period_start_utc: "2026-07-01 10:30:00+00", resolution_minutes: 15, load_mw: 300}
+          - {bidding_zone_eic: Z, load_kind: actual, period_start_utc: "2026-07-01 10:45:00+00", resolution_minutes: 15, load_mw: 400}
+          - {bidding_zone_eic: Z, load_kind: day_ahead_forecast, period_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, load_mw: 260}
+          - {bidding_zone_eic: Z, load_kind: day_ahead_forecast, period_start_utc: "2026-07-01 10:15:00+00", resolution_minutes: 15, load_mw: 260}
+          - {bidding_zone_eic: Z, load_kind: day_ahead_forecast, period_start_utc: "2026-07-01 10:30:00+00", resolution_minutes: 15, load_mw: 260}
+          - {bidding_zone_eic: Z, load_kind: day_ahead_forecast, period_start_utc: "2026-07-01 10:45:00+00", resolution_minutes: 15, load_mw: 260}
+          - {bidding_zone_eic: Z, load_kind: day_ahead_forecast, period_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 60, load_mw: 999}
+          - {bidding_zone_eic: Z, load_kind: day_ahead_forecast, period_start_utc: "2026-07-01 11:00:00+00", resolution_minutes: 60, load_mw: 270}
+    expect:
+      rows:
+        - {hour_start_utc: "2026-07-01 10:00:00+00", actual_load_mw: 250, forecast_load_mw: 260, n_actual_intervals: 4, resolution_minutes: 15}
+        - {hour_start_utc: "2026-07-01 11:00:00+00", actual_load_mw: null, forecast_load_mw: 270, n_actual_intervals: 0, resolution_minutes: 60}

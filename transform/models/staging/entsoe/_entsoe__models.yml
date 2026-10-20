@@ -123,6 +123,68 @@ models:
       - name: loaded_at
         description: When the kept version was loaded, UTC.
 
+  - name: stg_entsoe__total_load
+    description: >
+      Total load at native resolution, actual and day-ahead forecast,
+      deduplicated to the latest published version. Grain: zone × process
+      type × interval start × resolution.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns:
+              [bidding_zone_eic, process_type, period_start_utc, resolution_minutes]
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bidding_zones')
+                field: bidding_zone_eic
+      - name: process_type
+        description: ENTSO-E process type, A16 (realised) or A01 (day-ahead forecast).
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [A16, A01]
+      - name: load_kind
+        description: actual or day_ahead_forecast, from process_type.
+        data_tests:
+          - not_null
+      - name: period_start_utc
+        description: Start of the interval, UTC.
+        data_tests:
+          - not_null
+      - name: period_end_utc
+        description: End of the interval, UTC (exclusive).
+      - name: resolution_minutes
+        description: Length of the interval in minutes.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [15, 30, 60]
+                quote: false
+      - name: load_mw
+        description: Average total load over the interval, MW.
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+      - name: document_mrid
+        description: >-
+          ENTSO-E response the kept version came from. Regenerated on every
+          request, so it names a download, not a version of the data.
+      - name: document_created_at
+        description: >-
+          When ENTSO-E generated the response, UTC. The platform builds a document
+          per request, so this is the request time, not when the data was published.
+      - name: loaded_at
+        description: When the kept version was loaded, UTC.
+
 unit_tests:
   - name: test_stg_day_ahead_prices_keeps_the_latest_load
     description: >
