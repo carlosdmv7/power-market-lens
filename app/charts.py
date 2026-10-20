@@ -12,7 +12,7 @@ axis.
 import altair as alt
 from mix import GROUP_COLORS, GROUP_ORDER
 import pandas as pd
-from theme import INK_MUTED, RUST_500, SURFACE
+from theme import INK_MUTED, PETROL_900, RUST_500, SURFACE
 
 TIME_FORMAT = "%a %d %b, %H:%M"
 # One tick per day: at the default density, day-formatted ticks every 12 hours
@@ -39,38 +39,56 @@ def time_x(domain: tuple[pd.Timestamp, pd.Timestamp], **kwargs) -> alt.X:
     return alt.X("time:T", scale=scale, **kwargs)
 
 
-def price_chart(prices: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) -> alt.LayerChart:
-    """Hourly price, one series. A zero line appears when prices go negative.
+def _hourly_line(
+    data: pd.DataFrame,
+    field: str,
+    *,
+    unit: str,
+    color: str,
+    number_format: str,
+    domain: tuple[pd.Timestamp, pd.Timestamp],
+) -> list[alt.Chart]:
+    """One hourly series with the shared hover: rule, dot and exact tooltip.
 
-    The October DST change repeats 02:00 local: its two prices are drawn as
+    The October DST change repeats 02:00 local: its two values are drawn as
     their mean, one point per x, as the mix chart does with generation.
     """
-    prices = prices.groupby("time", as_index=False)["price_eur_mwh"].mean()
+    data = data.groupby("time", as_index=False)[field].mean()
     hover = alt.selection_point(
         fields=["time"], nearest=True, on="pointerover", clear="pointerout", empty=False
     )
-    base = alt.Chart(prices).encode(x=time_x(domain, title=None, axis=DAY_AXIS))
-    line = base.mark_line(stroke=RUST_500, strokeWidth=2, clip=True).encode(
-        y=alt.Y("price_eur_mwh:Q", title="€/MWh", axis=y_axis()),
+    base = alt.Chart(data).encode(x=time_x(domain, title=None, axis=DAY_AXIS))
+    line = base.mark_line(stroke=color, strokeWidth=2, clip=True).encode(
+        y=alt.Y(f"{field}:Q", title=unit, axis=y_axis()),
     )
     targets = (
         base.mark_point(opacity=0, size=200, clip=True)
         .encode(
-            y="price_eur_mwh:Q",
+            y=f"{field}:Q",
             tooltip=[
                 alt.Tooltip("time:T", title="Hour", format=TIME_FORMAT),
-                alt.Tooltip("price_eur_mwh:Q", title="€/MWh", format=",.2f"),
+                alt.Tooltip(f"{field}:Q", title=unit, format=number_format),
             ],
         )
         .add_params(hover)
     )
     rule = base.mark_rule(color=INK_MUTED, clip=True).transform_filter(hover)
     dot = line.mark_point(
-        filled=True, size=70, color=RUST_500, stroke=SURFACE, strokeWidth=2, clip=True
-    )
-    dot = dot.transform_filter(hover)
+        filled=True, size=70, color=color, stroke=SURFACE, strokeWidth=2, clip=True
+    ).transform_filter(hover)
+    return [line, rule, dot, targets]
 
-    layers = [line, rule, dot, targets]
+
+def price_chart(prices: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) -> alt.LayerChart:
+    """Hourly price, one series. A zero line appears when prices go negative."""
+    layers = _hourly_line(
+        prices,
+        "price_eur_mwh",
+        unit="€/MWh",
+        color=RUST_500,
+        number_format=",.2f",
+        domain=domain,
+    )
     if (prices["price_eur_mwh"] < 0).any():
         zero = (
             alt.Chart(pd.DataFrame({"y": [0]}))
@@ -79,6 +97,22 @@ def price_chart(prices: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp])
         )
         layers.insert(0, zero)
     return alt.layer(*layers).properties(height=280)
+
+
+def intensity_chart(
+    metrics: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]
+) -> alt.LayerChart:
+    """Hourly carbon intensity of production, in petrol: a different measure
+    from the price (rust), on the same time axis."""
+    layers = _hourly_line(
+        metrics,
+        "carbon_intensity_g_per_kwh",
+        unit="gCO₂eq/kWh",
+        color=PETROL_900,
+        number_format=",.0f",
+        domain=domain,
+    )
+    return alt.layer(*layers).properties(height=220)
 
 
 def mix_chart(mix: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) -> alt.LayerChart:

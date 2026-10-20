@@ -28,6 +28,7 @@ def test_price_and_mix_charts_share_the_time_domain():
             "time": hours[:130],
             "hour_start_utc": hours[:130],
             "psr_type": "B16",
+            "display_group": "Solar",
             "generation_mw": 9000.0,
         }
     )
