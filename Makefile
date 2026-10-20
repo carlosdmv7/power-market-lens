@@ -64,6 +64,10 @@ raw-tables: ## Create the raw tables in the APP_ENV database (idempotent)
 record-fixtures: ## Re-record the real ENTSO-E responses the parser tests use (needs ENTSOE_API_KEY)
 	uv run $(ENV_FILE) python scripts/record_entsoe_fixtures.py
 
+.PHONY: map-geometry
+map-geometry: ## Rebuild app/assets/map_zones.geojson from Natural Earth (ADR-005)
+	uv run scripts/build_map_geometry.py
+
 # ── Flows (Prefect) ────────────────────────────────────────────────────────────
 # APP_ENV in .env picks the database. Prod is written only by the main-branch
 # pipeline, so locally these run against power_dev.
