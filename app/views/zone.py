@@ -103,6 +103,16 @@ prices = prices.assign(time=to_local(prices))
 time_domain = (prices["time"].min(), prices["time"].max())
 generation = data.hourly_generation(zone, start, end)
 grouped = mix.grouped_mix(generation.assign(time=to_local(generation)))
+metrics = data.hourly_mix_metrics(zone, start, end)
+metrics = metrics.assign(time=to_local(metrics))
+
+
+def production_weighted(column: str) -> float:
+    # A period's share or intensity weights each hour by what it produced:
+    # the plain mean of hourly shares would count a quiet night like a peak.
+    weights = metrics["production_mw"]
+    return (metrics[column] * weights).sum() / weights.sum()
+
 
 # ── The answer first ──────────────────────────────────────────────────────────
 cheapest = prices.loc[prices["price_eur_mwh"].idxmin()]
@@ -112,6 +122,11 @@ detail = ""
 if not grouped.empty:
     top = mix.shares(grouped)
     detail = f"Largest source: {top.index[0].lower()}, {top.iloc[0]:.0%} of generation."
+if not metrics.empty:
+    detail += (
+        f" Renewables made {production_weighted('renewable_share'):.0%} of it, at "
+        f"{production_weighted('carbon_intensity_g_per_kwh'):,.0f} gCO₂eq per kWh."
+    )
 theme.lede(
     f"From {period}, the day-ahead price averaged {prices['price_eur_mwh'].mean():,.2f} €/MWh, "
     f"between {cheapest['price_eur_mwh']:,.2f} and {dearest['price_eur_mwh']:,.2f} €/MWh.",
@@ -125,6 +140,15 @@ low.caption(hour_label(cheapest))
 high.metric("Most expensive hour", f"{dearest['price_eur_mwh']:,.2f} €/MWh")
 high.caption(hour_label(dearest))
 negative.metric("Hours at or below zero", int((prices["price_eur_mwh"] <= 0).sum()))
+if not metrics.empty:
+    renewable, low_carbon, intensity, _ = st.columns(4)
+    renewable.metric("Renewable share", f"{production_weighted('renewable_share'):.0%}")
+    low_carbon.metric("Low-carbon share", f"{production_weighted('low_carbon_share'):.0%}")
+    low_carbon.caption("Renewables and nuclear")
+    intensity.metric(
+        "Carbon intensity", f"{production_weighted('carbon_intensity_g_per_kwh'):,.0f} g/kWh"
+    )
+    intensity.caption("gCO₂eq per kWh produced, lifecycle")
 
 # ── Price ─────────────────────────────────────────────────────────────────────
 theme.section("Hourly day-ahead price")
@@ -147,8 +171,8 @@ if grouped.empty:
 else:
     theme.altair_chart(charts.mix_chart(grouped, time_domain))
     caption = (
-        "ENTSO-E's production types are grouped into five: hydro, biomass, waste and the "
-        "remaining sources are shown together as hydro & other."
+        "ENTSO-E's production types are grouped into five: hydro, biomass, waste, storage "
+        "and the remaining sources are shown together as hydro & other."
     )
     latest_generation = grouped["time"].max()
     if latest_generation < time_domain[1]:
@@ -156,6 +180,24 @@ else:
         caption += (
             " Generation is reported after the fact, so it runs only to "
             f"{latest_generation:%a %d %b, %H:%M}; the prices go further ahead."
+        )
+    st.caption(caption)
+
+# ── Emissions ─────────────────────────────────────────────────────────────────
+if not metrics.empty:
+    theme.section("Carbon intensity of production")
+    theme.altair_chart(charts.intensity_chart(metrics, time_domain))
+    caption = (
+        "Lifecycle emissions per kWh produced in the zone, from IPCC AR5 medians by "
+        "technology. Production-based: imported power is not counted, and storage, "
+        "which re-delivers power produced earlier, is left out."
+    )
+    proxy = production_weighted("proxy_factor_share")
+    if proxy >= 0.05:
+        caption += (
+            f" {proxy:.0%} of this zone's production has no AR5 factor of its own and takes "
+            "a stated proxy, so the intensity is approximate. Where that is lignite, which "
+            "takes hard coal's factor though it emits more, it is understated."
         )
     st.caption(caption)
 
@@ -168,6 +210,16 @@ with st.expander("Data table", icon=":material/table:"):
             index="time", columns="group", values="generation_mw", observed=True
         ).add_suffix(" (MW)")
         table = table.merge(wide, left_on="Hour (local)", right_index=True, how="left")
+    if not metrics.empty:
+        emissions = metrics.set_index("time")[
+            ["renewable_share", "carbon_intensity_g_per_kwh"]
+        ].rename(
+            columns={
+                "renewable_share": "Renewable share",
+                "carbon_intensity_g_per_kwh": "Carbon intensity (gCO₂eq/kWh)",
+            }
+        )
+        table = table.merge(emissions, left_on="Hour (local)", right_index=True, how="left")
     st.dataframe(table, hide_index=True, width="stretch")
 
 theme.render_footer(repo_url=REPO_URL)

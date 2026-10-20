@@ -2,23 +2,39 @@ from pathlib import Path
 import sys
 
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parents[2] / "app"))
 
 import mix  # noqa: E402
 
+# The mart's grouping, as the technology_mapping seed sets it (ADR-004).
+GROUP_OF = {
+    "B04": "Fossil",
+    "B05": "Fossil",
+    "B11": "Hydro & other",
+    "B14": "Nuclear",
+    "B16": "Solar",
+    "B18": "Wind",
+    "B19": "Wind",
+}
+
 
 def generation(rows):
-    return pd.DataFrame(rows, columns=["time", "psr_type", "generation_mw"])
+    frame = pd.DataFrame(rows, columns=["time", "psr_type", "generation_mw"])
+    return frame.assign(display_group=frame["psr_type"].map(GROUP_OF))
 
 
-def test_every_production_type_lands_in_exactly_one_of_five_groups():
-    codes = [f"B{n:02d}" for n in range(1, 26)]
-
-    groups = {mix.group_of(code) for code in codes}
-
-    assert groups == set(mix.GROUP_ORDER)
+def test_five_groups_at_most():
     assert len(mix.GROUPS) == 5  # the brand's categorical limit
+
+
+def test_a_group_without_a_colour_fails_loudly():
+    t = pd.Timestamp("2026-10-11 12:00")
+    frame = generation([(t, "B16", 1.0)]).assign(display_group="Storage")
+
+    with pytest.raises(ValueError, match="Storage"):
+        mix.grouped_mix(frame)
 
 
 def test_groups_sum_their_types_and_shares_add_up():
