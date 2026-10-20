@@ -9,10 +9,12 @@ hour, and a tooltip gives the exact values, so no number has to be read off an
 axis.
 """
 
+import math
+
 import altair as alt
 from mix import GROUP_COLORS, GROUP_ORDER
 import pandas as pd
-from theme import INK_MUTED, RUST_500, SURFACE
+from theme import INK_MUTED, PETROL_900, RUST_500, SURFACE
 
 TIME_FORMAT = "%a %d %b, %H:%M"
 # One tick per day: at the default density, day-formatted ticks every 12 hours
@@ -147,7 +149,76 @@ def price_scale(prices: pd.DataFrame) -> alt.Scale:
     return alt.Scale(domain=[low, high], range=PRICE_RAMP, interpolate="lab")
 
 
-def price_map(features: list[dict], prices: pd.DataFrame) -> alt.LayerChart:
+def _mercator_y(lat: float) -> float:
+    return math.degrees(math.log(math.tan(math.pi / 4 + math.radians(lat) / 2)))
+
+
+def flow_segments(features: list[dict], flows: pd.DataFrame) -> pd.DataFrame:
+    """One row per border: anchors of both ends, and where and how to draw
+    the arrowhead (60% of the way to the importer, pointing at it)."""
+    anchors = {
+        f["properties"]["zone_code"]: (f["properties"]["anchor_lon"], f["properties"]["anchor_lat"])
+        for f in features
+        if f["properties"]["role"] != "context"
+    }
+    rows = []
+    for flow in flows.itertuples():
+        # A border that netted to zero has no direction to draw.
+        if flow.net_mw < 1 or flow.source not in anchors or flow.target not in anchors:
+            continue
+        (lon1, lat1), (lon2, lat2) = anchors[flow.source], anchors[flow.target]
+        # The bearing on screen, in the map's Mercator projection: clockwise
+        # from north, the angle Vega rotates a triangle-up by.
+        bearing = math.degrees(math.atan2(lon2 - lon1, _mercator_y(lat2) - _mercator_y(lat1)))
+        rows.append(
+            {
+                "source": flow.source,
+                "target": flow.target,
+                "net_mw": flow.net_mw,
+                "lon1": lon1,
+                "lat1": lat1,
+                "lon2": lon2,
+                "lat2": lat2,
+                "head_lon": lon1 + 0.6 * (lon2 - lon1),
+                "head_lat": lat1 + 0.6 * (lat2 - lat1),
+                "bearing": bearing,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _flow_layers(segments: pd.DataFrame) -> list[alt.Chart]:
+    tooltip = [
+        alt.Tooltip("source:N", title="From"),
+        alt.Tooltip("target:N", title="To"),
+        alt.Tooltip("net_mw:Q", title="Mean net flow (MW)", format=",.0f"),
+    ]
+    base = alt.Chart(segments)
+    lines = base.mark_rule(color=PETROL_900, opacity=0.85, strokeCap="round").encode(
+        longitude="lon1:Q",
+        latitude="lat1:Q",
+        longitude2="lon2:Q",
+        latitude2="lat2:Q",
+        strokeWidth=alt.StrokeWidth(
+            "net_mw:Q", scale=alt.Scale(range=[1, 7], zero=True), legend=None
+        ),
+        tooltip=tooltip,
+    )
+    heads = base.mark_point(
+        shape="triangle-up", filled=True, color=PETROL_900, opacity=1, stroke=SURFACE, strokeWidth=1
+    ).encode(
+        longitude="head_lon:Q",
+        latitude="head_lat:Q",
+        angle=alt.Angle("bearing:Q", scale=None),
+        size=alt.Size("net_mw:Q", scale=alt.Scale(range=[60, 260], zero=True), legend=None),
+        tooltip=tooltip,
+    )
+    return [lines, heads]
+
+
+def price_map(
+    features: list[dict], prices: pd.DataFrame, flows: pd.DataFrame | None = None
+) -> alt.LayerChart:
     """Each modelled zone filled by its day's mean price; all other land quiet.
 
     The land layer goes underneath, so a zone without a price that day still
@@ -191,7 +262,12 @@ def price_map(features: list[dict], prices: pd.DataFrame) -> alt.LayerChart:
             ],
         )
     )
-    return alt.layer(land, zones).project(type="mercator").properties(height=MAP_HEIGHT)
+    layers = [land, zones]
+    if flows is not None and not flows.empty:
+        segments = flow_segments(features, flows)
+        if not segments.empty:
+            layers += _flow_layers(segments)
+    return alt.layer(*layers).project(type="mercator").properties(height=MAP_HEIGHT)
 
 
 def price_ranking(prices: pd.DataFrame) -> alt.LayerChart:
