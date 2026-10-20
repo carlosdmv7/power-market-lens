@@ -33,6 +33,7 @@ day = st.date_input(
     help="Defaults to the latest day with every hour priced in every zone.",
 )
 prices = data.daily_zone_prices(day)
+flows = data.daily_net_flows(day)
 loaded_at = data.hourly_prices(prices["zone_code"].iloc[0], day, day)["loaded_at"].max()
 stale = datetime.now(UTC) - loaded_at > STALE_AFTER
 with header:
@@ -85,10 +86,28 @@ else:
 map_column, ranking_column = st.columns([3, 2])
 with map_column:
     theme.section("Mean price by zone")
-    theme.altair_chart(charts.price_map(data.zone_geometry(), prices))
+    show_flows = not flows.empty and st.toggle("Net cross-border flows", value=True)
+    theme.altair_chart(
+        charts.price_map(data.zone_geometry(), prices, flows if show_flows else None)
+    )
 with ranking_column:
     theme.section("Ranked")
     theme.altair_chart(charts.price_ranking(prices))
+if not flows.empty:
+    partial = flows["n_hours"].min() < prices["hours_in_delivery_day"].max()
+    st.caption(
+        "Arrows show each border's net physical flow, the day's mean, pointing at the "
+        "importer; the thicker the line, the more megawatts. These are physical flows: "
+        "trades go from cheaper zones to dearer ones, but power also loops through "
+        "neighbouring grids and swings hour by hour, so a day's net can run against "
+        "the day's price gap."
+        + (
+            " Flows are measured as they happen, so this day's are the mean of the hours "
+            "published so far."
+            if partial
+            else ""
+        )
+    )
 st.caption(
     "Grey land is outside this app's twelve zones. Each zone's price is the mean of its "
     "local day's hours; since 1 October 2025 each hour is itself the mean of four "

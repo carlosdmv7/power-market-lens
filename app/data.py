@@ -167,3 +167,39 @@ def daily_zone_prices(day: date) -> pd.DataFrame:
         """,
         [day],
     )
+
+
+@st.cache_data(ttl=CACHE_TTL_S)
+def daily_net_flows(day: date) -> pd.DataFrame:
+    """Mean net physical flow per border over a local delivery day, as
+    source → target (the importer), MW. Empty until the interchange mart exists.
+
+    A border between two modelled zones is in the mart from both sides; the
+    side whose code sorts first is kept, so each border appears once. The day
+    is that side's local day.
+    """
+    try:
+        flows = _query(
+            """
+            select zone_code, counterpart_code,
+                   avg(net_import_mw) as net_import_mw,
+                   count(net_import_mw) as n_hours
+            from marts.fct_interchange_hourly
+            where delivery_date_local = ?
+                and (not is_counterpart_modelled or zone_code < counterpart_code)
+            group by zone_code, counterpart_code
+            having count(net_import_mw) > 0
+            """,
+            [day],
+        )
+    except duckdb.CatalogException:
+        return pd.DataFrame(columns=["source", "target", "net_mw", "n_hours"])
+    imports = flows["net_import_mw"] > 0
+    return pd.DataFrame(
+        {
+            "source": flows["counterpart_code"].where(imports, flows["zone_code"]),
+            "target": flows["zone_code"].where(imports, flows["counterpart_code"]),
+            "net_mw": flows["net_import_mw"].abs(),
+            "n_hours": flows["n_hours"],
+        }
+    )
