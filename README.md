@@ -36,7 +36,9 @@ price forecast for Spain.
 ![Spain: hourly day-ahead price above the generation mix, on one shared time axis](docs/img/spain.png)
 
 The page answers its question in one sentence before any control. The two charts share one
-time axis, so an hour sits at the same position in both. Times are Spanish local time.
+time axis, so an hour sits at the same position in both. Any of the twelve bidding zones can be
+picked (`?zone=FR` in the URL), and times are the zone's local time. A map page compares one
+day's mean price across all twelve.
 
 ---
 
@@ -135,8 +137,8 @@ Requires [uv](https://docs.astral.sh/uv/). `make help` lists every command.
 ```text
 src/power_market_lens/   config, zones, ENTSO-E ingest, Prefect flows
 transform/               dbt project: seeds, staging → intermediate → marts, tests
-app/                     Streamlit page, charts, generation grouping
-scripts/                 re-recording the ENTSO-E test fixtures
+app/                     Streamlit router, pages (views/), charts, map shapes (assets/)
+scripts/                 re-recording the ENTSO-E test fixtures; building the map shapes
 tests/                   pytest, mirroring src/ and app/, with recorded API fixtures
 docs/adr/                architecture decision records
 ```

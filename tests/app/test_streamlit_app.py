@@ -66,7 +66,7 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
 
 @pytest.fixture
 def run_page(tmp_path, monkeypatch):
-    def run(with_data: bool | None, zone: str | None = None) -> AppTest:
+    def run(with_data: bool | None, zone: str | None = None, page: str | None = None) -> AppTest:
         warehouse = tmp_path / f"{with_data}-{zone}.duckdb"
         make_warehouse(warehouse, with_data)
         monkeypatch.setenv("WAREHOUSE_PATH", str(warehouse))
@@ -78,6 +78,8 @@ def run_page(tmp_path, monkeypatch):
         if zone is not None:
             at.query_params["zone"] = zone
         at.run()
+        if page is not None:
+            at.switch_page(page).run()
         return at
 
     return run
@@ -144,4 +146,24 @@ def test_warehouse_without_marts_explains_itself(run_page):
 
     assert not at.exception
     assert not at.error
+    assert "No data in the warehouse yet" in at.info[0].value
+
+
+def test_map_page_colours_each_zone_and_ranks_them(run_page):
+    at = run_page(with_data=True, page="views/map.py")
+
+    assert not at.exception
+    assert not at.error
+    assert len(at.get("vega_lite_chart")) == 2  # the map and the ranking
+    # 17 Oct is the last day complete everywhere: Portugal's local 17th is short.
+    assert at.date_input[0].value.isoformat() == "2026-10-16"
+    assert any("Zones" in m.value and "3 priced on this day" in m.value for m in at.markdown)
+    # The fixture prices every zone the same over its local day.
+    assert any("every zone cleared at the same price" in m.value for m in at.markdown)
+
+
+def test_map_page_on_an_empty_warehouse_explains_itself(run_page):
+    at = run_page(with_data=None, page="views/map.py")
+
+    assert not at.exception
     assert "No data in the warehouse yet" in at.info[0].value
