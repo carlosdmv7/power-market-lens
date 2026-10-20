@@ -37,26 +37,50 @@ def _query(sql: str, params: list | None = None) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=CACHE_TTL_S)
-def date_bounds(zone_code: str) -> tuple[date, date] | None:
+def zone_codes() -> list[str]:
+    """Zones with prices in the warehouse; empty before the first pipeline run."""
     try:
-        row = _query(
-            "select min(delivery_date_local), max(delivery_date_local) "
-            "from marts.fct_day_ahead_price_hourly where zone_code = ?",
-            [zone_code],
-        ).iloc[0]
+        zones = _query("select distinct zone_code from marts.fct_day_ahead_price_hourly")
     except duckdb.CatalogException:
         # The marts do not exist until the first pipeline run has built them.
-        return None
+        return []
+    return sorted(zones["zone_code"])
+
+
+@st.cache_data(ttl=CACHE_TTL_S)
+def date_bounds(zone_code: str) -> tuple[date, date, date] | None:
+    """First day, last day, and last complete day of the zone's prices.
+
+    The last day can be short of hours: SDAC sets prices per market day in
+    Brussels time, so a zone on another clock (Portugal) gets its latest
+    local day one hour short until the next auction.
+    """
+    row = _query(
+        """
+        with days as (
+            select delivery_date_local,
+                   count(distinct hour_start_utc) = any_value(hours_in_delivery_day) as complete
+            from marts.fct_day_ahead_price_hourly
+            where zone_code = ?
+            group by delivery_date_local
+        )
+        select min(delivery_date_local), max(delivery_date_local),
+               max(delivery_date_local) filter (where complete)
+        from days
+        """,
+        [zone_code],
+    ).iloc[0]
     if pd.isna(row.iloc[0]):
         return None
-    return pd.Timestamp(row.iloc[0]).date(), pd.Timestamp(row.iloc[1]).date()
+    first, last, complete = (pd.Timestamp(value).date() for value in row)
+    return first, last, complete
 
 
 @st.cache_data(ttl=CACHE_TTL_S)
 def hourly_prices(zone_code: str, start: date, end: date) -> pd.DataFrame:
     return _query(
         """
-        select hour_start_utc, delivery_date_local, delivery_hour_local,
+        select hour_start_utc, delivery_date_local, delivery_hour_local, utc_offset_minutes,
                price_eur_mwh, has_price_out_of_range, loaded_at
         from marts.fct_day_ahead_price_hourly
         where zone_code = ? and delivery_date_local between ? and ?
@@ -70,7 +94,7 @@ def hourly_prices(zone_code: str, start: date, end: date) -> pd.DataFrame:
 def hourly_generation(zone_code: str, start: date, end: date) -> pd.DataFrame:
     return _query(
         """
-        select hour_start_utc, psr_type, psr_name, generation_mw
+        select hour_start_utc, utc_offset_minutes, psr_type, psr_name, generation_mw
         from marts.fct_generation_hourly
         where zone_code = ? and delivery_date_local between ? and ?
             and generation_mw is not null

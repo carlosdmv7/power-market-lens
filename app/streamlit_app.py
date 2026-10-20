@@ -1,4 +1,4 @@
-"""Power Market Lens — Spain: hourly day-ahead price and generation mix.
+"""Power Market Lens: hourly day-ahead price and generation mix per bidding zone.
 
     streamlit run app/streamlit_app.py
 
@@ -27,8 +27,7 @@ import pandas as pd  # noqa: E402
 import streamlit as st  # noqa: E402
 import theme  # noqa: E402
 
-ZONE = "ES"
-ZONE_TIMEZONE = "Europe/Madrid"
+DEFAULT_ZONE = "ES"
 DEFAULT_DAYS = 7
 REPO_URL = "https://github.com/carlosdmv7/power-market-lens"
 STALE_AFTER = timedelta(hours=36)  # same threshold as the dbt source freshness error
@@ -40,67 +39,94 @@ st.set_page_config(
 )
 
 
-def to_local(utc: pd.Series) -> pd.Series:
-    # Charts get naive Madrid wall-clock time. On the October DST change the
-    # repeated hour 02:00 appears twice; the key in the warehouse stays UTC.
-    return utc.dt.tz_convert(ZONE_TIMEZONE).dt.tz_localize(None)
+def to_local(frame: pd.DataFrame) -> pd.Series:
+    # Charts get naive local wall-clock time, from the offset the mart already
+    # derived for each hour from the zone's time zone. On the October DST
+    # change the repeated hour 02:00 appears twice; the key stays UTC.
+    utc = frame["hour_start_utc"].dt.tz_convert("UTC").dt.tz_localize(None)
+    return utc + pd.to_timedelta(frame["utc_offset_minutes"], unit="min")
 
 
 def hour_label(row: pd.Series) -> str:
     return f"{row['delivery_date_local']:%a %d %b}, {int(row['delivery_hour_local']):02d}:00"
 
 
-TITLE = "Spain: day-ahead price and generation mix"
+TITLE = "Day-ahead price and generation mix"
 SUBTITLE = (
-    "What electricity cost on Spain's day-ahead market each hour, and what produced it. "
-    "Source: ENTSO-E Transparency Platform; times are Spanish local time."
+    "What electricity cost on the day-ahead market each hour, and what produced it, "
+    "per bidding zone. Source: ENTSO-E Transparency Platform; times are the zone's local time."
 )
 
-bounds = data.date_bounds(ZONE)
-if bounds is None:
+zones = data.zone_codes()
+if not zones:
     theme.render_header(TITLE, SUBTITLE)
     st.info("No data in the warehouse yet. The first pipeline run will fill this page.")
     theme.render_footer(repo_url=REPO_URL)
     st.stop()
 
-first_day, last_day = bounds
-latest = data.hourly_prices(ZONE, last_day, last_day)
+# The header shows facts about the zone picked below it, so it is filled last.
+header = st.container()
+
+# The zone lives in the URL (?zone=FR), so a link opens the same view.
+requested = st.query_params.get("zone")
+initial = next((code for code in (requested, DEFAULT_ZONE) if code in zones), zones[0])
+zone_column, dates_column = st.columns([1, 2])
+zone = zone_column.selectbox(
+    "Bidding zone",
+    zones,
+    index=zones.index(initial),
+    help="ENTSO-E bidding zones: Italy has seven, Germany and Luxembourg share one.",
+)
+st.query_params["zone"] = zone
+
+first_day, last_day, complete_day = data.date_bounds(zone)
+latest = data.hourly_prices(zone, last_day, last_day)
 loaded_at = latest["loaded_at"].max()
 stale = datetime.now(UTC) - loaded_at > STALE_AFTER
-theme.render_header(
-    TITLE,
-    SUBTITLE,
-    facts=[
-        theme.StripItem("Prices through", f"{last_day:%d %b %Y}"),
-        theme.StripItem(
-            "Last loaded",
-            f"{loaded_at:%d %b, %H:%M} UTC",
-            tone="warn" if stale else "good",
-            help="The pipeline runs daily after the day-ahead auction results are published.",
-        ),
-        theme.StripItem("Zone", "ES · 10YES-REE------0"),
-    ],
-)
+with header:
+    theme.render_header(
+        f"{zone}: {TITLE[0].lower()}{TITLE[1:]}",
+        SUBTITLE,
+        facts=[
+            theme.StripItem(
+                "Complete through",
+                f"{complete_day:%d %b %Y}",
+                help="The last local day with a price for every hour.",
+            ),
+            theme.StripItem(
+                "Last loaded",
+                f"{loaded_at:%d %b, %H:%M} UTC",
+                tone="warn" if stale else "good",
+                help="The pipeline runs daily after the day-ahead auction results are published.",
+            ),
+            theme.StripItem("Zones", f"{len(zones)} in the warehouse"),
+        ],
+    )
 
 default_start = max(first_day, last_day - timedelta(days=DEFAULT_DAYS - 1))
-picked = st.date_input(
+picked = dates_column.date_input(
     "Delivery dates",
     value=(default_start, last_day),
     min_value=first_day,
     max_value=last_day,
 )
+if complete_day < last_day:
+    dates_column.caption(
+        f"{last_day:%d %b} is one hour short: prices are set per day in Brussels time, "
+        f"so {zone}'s last local hour arrives with the next auction."
+    )
 if not isinstance(picked, tuple) or len(picked) != 2:
     st.stop()  # the user is midway through picking a range
 start, end = picked
 
-prices = data.hourly_prices(ZONE, start, end)
+prices = data.hourly_prices(zone, start, end)
 if prices.empty:
     st.info("No prices for these dates.")
     st.stop()
-prices = prices.assign(time=to_local(prices["hour_start_utc"]))
+prices = prices.assign(time=to_local(prices))
 time_domain = (prices["time"].min(), prices["time"].max())
-generation = data.hourly_generation(ZONE, start, end)
-grouped = mix.grouped_mix(generation.assign(time=to_local(generation["hour_start_utc"])))
+generation = data.hourly_generation(zone, start, end)
+grouped = mix.grouped_mix(generation.assign(time=to_local(generation)))
 
 # ── The answer first ──────────────────────────────────────────────────────────
 cheapest = prices.loc[prices["price_eur_mwh"].idxmin()]
