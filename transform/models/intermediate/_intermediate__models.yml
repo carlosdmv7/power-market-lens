@@ -94,3 +94,30 @@ models:
         description: Number of generation intervals averaged.
       - name: loaded_at
         description: Latest load among the hour's intervals, UTC.
+
+  - name: int_crossborder_flows__aggregated_hourly
+    description: >
+      Physical flows per direction of a border, rolled up to the UTC hour as
+      mean power, from the finest resolution published for the hour.
+      Grain: out zone × in zone × UTC hour.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [out_zone_eic, in_zone_eic, hour_start_utc]
+    columns:
+      - name: out_zone_eic
+        description: EIC code of the zone the flow leaves.
+      - name: in_zone_eic
+        description: EIC code of the zone the flow enters.
+      - name: hour_start_utc
+        description: Start of the hour, UTC.
+      - name: resolution_minutes
+        description: Resolution of the intervals averaged into the hour.
+      - name: n_intervals
+        description: Number of intervals averaged.
+      - name: is_complete_hour
+        description: True when the intervals cover the whole hour.
+      - name: flow_mw
+        description: Mean flow in this direction over the hour, MW.
+      - name: loaded_at
+        description: Latest load among the hour's intervals, UTC.
