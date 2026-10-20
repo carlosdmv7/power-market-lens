@@ -105,6 +105,13 @@ generation = data.hourly_generation(zone, start, end)
 grouped = mix.grouped_mix(generation.assign(time=to_local(generation)))
 metrics = data.hourly_mix_metrics(zone, start, end)
 metrics = metrics.assign(time=to_local(metrics))
+load = data.hourly_load(zone, start, end)
+load = load.assign(time=to_local(load))
+measured = load.dropna(subset=["actual_load_mw", "forecast_load_mw"])
+# Above this, forecast and actual disagree by more than any forecast misses:
+# the two series most likely cover different things (seen in NL, 2026-10).
+SYSTEMATIC_BIAS = 0.05
+STEADY_SHARE = 0.9  # of hours with the error on the bias's side
 
 
 def production_weighted(column: str) -> float:
@@ -141,7 +148,7 @@ high.metric("Most expensive hour", f"{dearest['price_eur_mwh']:,.2f} €/MWh")
 high.caption(hour_label(dearest))
 negative.metric("Hours at or below zero", int((prices["price_eur_mwh"] <= 0).sum()))
 if not metrics.empty:
-    renewable, low_carbon, intensity, _ = st.columns(4)
+    renewable, low_carbon, intensity, demand = st.columns(4)
     renewable.metric("Renewable share", f"{production_weighted('renewable_share'):.0%}")
     low_carbon.metric("Low-carbon share", f"{production_weighted('low_carbon_share'):.0%}")
     low_carbon.caption("Renewables and nuclear")
@@ -149,6 +156,10 @@ if not metrics.empty:
         "Carbon intensity", f"{production_weighted('carbon_intensity_g_per_kwh'):,.0f} g/kWh"
     )
     intensity.caption("gCO₂eq per kWh produced, lifecycle")
+    if not measured.empty:
+        demand.metric("Average load", f"{measured['actual_load_mw'].mean():,.0f} MW")
+        miss = measured["forecast_error_mw"].abs().mean() / measured["actual_load_mw"].mean()
+        demand.caption(f"Day-ahead forecast off by {miss:.1%} on average")
 
 # ── Price ─────────────────────────────────────────────────────────────────────
 theme.section("Hourly day-ahead price")
@@ -181,6 +192,28 @@ else:
             " Generation is reported after the fact, so it runs only to "
             f"{latest_generation:%a %d %b, %H:%M}; the prices go further ahead."
         )
+    st.caption(caption)
+
+# ── Load ──────────────────────────────────────────────────────────────────────
+if not load.empty:
+    theme.section("Electricity demand")
+    theme.altair_chart(charts.load_chart(load, time_domain))
+    caption = (
+        "Total load as the TSO reports it, against the forecast it published the day "
+        "before. The forecast runs into tomorrow; the actual stops at the latest hour reported."
+    )
+    if not measured.empty:
+        bias = measured["forecast_error_mw"].mean() / measured["actual_load_mw"].mean()
+        # Large and one-sided: the caption below says "almost every hour", so
+        # that is what is checked. A small zone's noisy forecast (IT-CALA) is
+        # large but two-sided, and is not called a definition gap.
+        same_side = (measured["forecast_error_mw"] * bias > 0).mean()
+        if abs(bias) > SYSTEMATIC_BIAS and same_side >= STEADY_SHARE:
+            caption += (
+                f" Here the forecast sits {abs(bias):.0%} {'above' if bias > 0 else 'below'} "
+                "the actual almost every hour: too steady to be forecasting error, so the two "
+                "series most likely do not cover the same consumption."
+            )
     st.caption(caption)
 
 # ── Emissions ─────────────────────────────────────────────────────────────────
