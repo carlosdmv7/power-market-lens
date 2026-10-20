@@ -26,23 +26,31 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
         """
         create table marts.fct_day_ahead_price_hourly as
         select
-            'ES' as zone_code,
+            zone_code,
             ts as hour_start_utc,
-            cast(ts at time zone 'Europe/Madrid' as date) as delivery_date_local,
-            hour(ts at time zone 'Europe/Madrid') as delivery_hour_local,
+            cast(ts at time zone tz as date) as delivery_date_local,
+            hour(ts at time zone tz) as delivery_hour_local,
+            cast((epoch(ts at time zone tz) - epoch(ts)) / 60 as integer) as utc_offset_minutes,
+            24 as hours_in_delivery_day,  -- no DST change in the window
             case when hour(ts) = 13 then -1.0 else 40 + hour(ts) end as price_eur_mwh,
             false as has_price_out_of_range,
             timestamptz '2026-10-17 13:30:00+00' as loaded_at
+        -- Brussels market days 11–17 Oct. In Lisbon (an hour behind) that is
+        -- 23:00 on the 10th to 22:00 on the 17th: the last local day is short.
         from generate_series(
             timestamptz '2026-10-10 22:00:00+00', timestamptz '2026-10-17 21:00:00+00', interval 1 hour
         ) as t(ts)
+        -- DE-LU sorts first: the fallback must still be Spain, not the first zone.
+        cross join (
+            values ('DE-LU', 'Europe/Berlin'), ('ES', 'Europe/Madrid'), ('PT', 'Europe/Lisbon')
+        ) as z(zone_code, tz)
         """
         + ("" if with_data else " where false")
     )
     con.execute(
         """
         create table marts.fct_generation_hourly as
-        select p.zone_code, p.hour_start_utc, p.delivery_date_local, g.psr_type,
+        select p.zone_code, p.hour_start_utc, p.delivery_date_local, p.utc_offset_minutes, g.psr_type,
                g.psr_name, g.mw as generation_mw
         from marts.fct_day_ahead_price_hourly as p
         cross join (
@@ -58,8 +66,8 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
 
 @pytest.fixture
 def run_page(tmp_path, monkeypatch):
-    def run(with_data: bool | None) -> AppTest:
-        warehouse = tmp_path / f"{with_data}.duckdb"
+    def run(with_data: bool | None, zone: str | None = None) -> AppTest:
+        warehouse = tmp_path / f"{with_data}-{zone}.duckdb"
         make_warehouse(warehouse, with_data)
         monkeypatch.setenv("WAREHOUSE_PATH", str(warehouse))
         # The connection is a cached resource that lives as long as the process;
@@ -67,6 +75,8 @@ def run_page(tmp_path, monkeypatch):
         st.cache_resource.clear()
         st.cache_data.clear()
         at = AppTest.from_file(str(APP), default_timeout=30)
+        if zone is not None:
+            at.query_params["zone"] = zone
         at.run()
         return at
 
@@ -85,6 +95,39 @@ def test_page_renders_metrics_and_both_charts(run_page):
     assert any("price averaged 49.25 €/MWh" in m.value for m in at.markdown)  # the lede
     # 12:00 UTC is 14:00 in Madrid.
     assert any("only to Sat 17 Oct, 14:00" in c.value for c in at.caption)
+
+
+def test_the_zone_comes_from_the_url_and_stays_in_it(run_page):
+    at = run_page(with_data=True, zone="PT")
+
+    assert not at.exception
+    assert at.selectbox[0].value == "PT"
+    assert at.selectbox[0].options == ["DE-LU", "ES", "PT"]
+    assert at.query_params["zone"] == "PT"
+    # 12:00 UTC is 13:00 in Lisbon: the local clock is the zone's own.
+    assert any("only to Sat 17 Oct, 13:00" in c.value for c in at.caption)
+
+
+def test_a_short_last_day_is_not_called_complete(run_page):
+    at = run_page(with_data=True, zone="PT")
+    spain = run_page(with_data=True)
+
+    assert "**:color[16 Oct 2026]" in _strip(at)
+    assert any("17 Oct is one hour short" in c.value for c in at.caption)
+    assert "**:color[17 Oct 2026]" in _strip(spain)
+    assert not any("one hour short" in c.value for c in spain.caption)
+
+
+def test_an_unknown_zone_in_the_url_falls_back_to_spain(run_page):
+    at = run_page(with_data=True, zone="XX")
+
+    assert not at.exception
+    assert at.selectbox[0].value == "ES"
+
+
+def _strip(at: AppTest) -> str:
+    """The header's freshness strip: label and value are separate colour marks."""
+    return next(m.value for m in at.markdown if "Complete through" in m.value)
 
 
 def test_empty_warehouse_explains_itself(run_page):
