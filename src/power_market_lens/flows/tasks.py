@@ -6,10 +6,12 @@ swap them for fakes.
 """
 
 from collections.abc import Callable
+from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import subprocess  # noqa: S404 - runs this environment's own dbt CLI
 import sys
+from zoneinfo import ZoneInfo
 
 import duckdb
 from prefect import task
@@ -22,6 +24,7 @@ from power_market_lens.ingest.jobs import load_day_ahead_prices, load_generation
 from power_market_lens.ingest.warehouse import connect, ensure_raw_tables
 from power_market_lens.zones import get_zone
 
+SDAC_TIMEZONE = ZoneInfo("Europe/Brussels")  # = dbt var sdac_market_timezone
 DBT_PROJECT_DIR = Path(__file__).resolve().parents[3] / "transform"
 
 JOBS: dict[str, Callable[..., int]] = {
@@ -79,6 +82,30 @@ def load_zones(zone_codes: list[str], windows: RunWindows) -> tuple[dict[str, in
             else:
                 failed.append(key)
     return counts, failed
+
+
+def tomorrows_prices_built(zone_codes: list[str], now: datetime) -> bool:
+    """True when the marts already hold tomorrow's day-ahead prices for every zone.
+
+    That is the day's work done: the prices are published once a day, and a
+    run that built them also re-pulled the trailing window. GitHub drops many
+    scheduled runs, so the pipeline is scheduled several times a day and the
+    later attempts use this to skip. Tomorrow is the market day in Brussels
+    time, the clock SDAC runs on; every zone's local calendar reaches it once
+    that day's auction is loaded.
+    """
+    tomorrow = (now.astimezone(SDAC_TIMEZONE) + timedelta(days=1)).date()
+    with make_connection(load_settings()) as con:
+        try:
+            latest = dict(
+                con.execute(
+                    "select zone_code, max(delivery_date_local) "
+                    "from marts.fct_day_ahead_price_hourly group by zone_code"
+                ).fetchall()
+            )
+        except duckdb.CatalogException:
+            return False  # no marts yet: nothing has been built
+    return all(latest.get(code) is not None and latest[code] >= tomorrow for code in zone_codes)
 
 
 def raise_for_failed(failed: list[str]) -> None:

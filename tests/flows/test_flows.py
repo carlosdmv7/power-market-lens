@@ -9,7 +9,7 @@ from prefect.testing.utilities import prefect_test_harness
 import pytest
 import requests
 
-from power_market_lens.flows import tasks
+from power_market_lens.flows import daily, tasks
 from power_market_lens.flows.backfill import backfill
 from power_market_lens.flows.daily import daily_refresh
 from power_market_lens.ingest.entsoe_client import EntsoeClient
@@ -135,3 +135,45 @@ def test_run_dbt_reports_the_cli_exit_status():
     # The real CLI, in its own process; neither command touches a database.
     assert tasks.run_dbt(["debug", "--config-dir"]) is True
     assert tasks.run_dbt(["no-such-command"]) is False
+
+
+def _marts_with_prices_through(database, delivery_date: str) -> None:
+    con = duckdb.connect(database)
+    con.execute("create schema marts")
+    con.execute(
+        "create table marts.fct_day_ahead_price_hourly as "
+        f"select 'ES' as zone_code, date '{delivery_date}' as delivery_date_local"
+    )
+    con.close()
+
+
+def test_a_scheduled_run_skips_once_tomorrows_prices_are_built(wired):
+    database, dbt_calls = wired
+    _marts_with_prices_through(database, "2999-01-01")  # always beyond tomorrow
+
+    assert daily_refresh(zones=["ES"], skip_if_done=True) == {}
+    assert dbt_calls == []  # no load, no build
+
+
+def test_a_scheduled_run_refreshes_while_tomorrow_is_missing(wired):
+    database, dbt_calls = wired
+    _marts_with_prices_through(database, "2000-01-01")
+
+    counts = daily_refresh(zones=["ES"], trailing_days=1, skip_if_done=True)
+
+    assert counts["ES/day_ahead_prices"] == 100
+    assert ["build", "--target", "dev"] in dbt_calls
+
+
+def test_a_failed_check_never_skips_the_refresh(wired, monkeypatch):
+    _, dbt_calls = wired
+
+    def broken(*_):
+        raise RuntimeError("MotherDuck unavailable")
+
+    monkeypatch.setattr(daily, "tomorrows_prices_built", broken)
+
+    counts = daily_refresh(zones=["ES"], trailing_days=1, skip_if_done=True)
+
+    assert counts["ES/day_ahead_prices"] == 100
+    assert ["build", "--target", "dev"] in dbt_calls
