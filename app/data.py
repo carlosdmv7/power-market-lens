@@ -7,13 +7,16 @@ variables, so MOTHERDUCK_TOKEN comes from the app's secrets there.
 """
 
 from datetime import date
+import json
 import os
+from pathlib import Path
 
 import duckdb
 import pandas as pd
 import streamlit as st
 
 DEFAULT_WAREHOUSE = "md:power_prod"
+GEOMETRY = Path(__file__).parent / "assets" / "map_zones.geojson"  # ADR-005
 CACHE_TTL_S = 600  # the pipeline runs daily; ten minutes of staleness is harmless
 
 
@@ -101,4 +104,66 @@ def hourly_generation(zone_code: str, start: date, end: date) -> pd.DataFrame:
         order by hour_start_utc
         """,
         [zone_code, start, end],
+    )
+
+
+@st.cache_data
+def zone_geometry() -> list[dict]:
+    """The map's GeoJSON features: modelled zones, neighbours, context land."""
+    return json.loads(GEOMETRY.read_text())["features"]
+
+
+@st.cache_data(ttl=CACHE_TTL_S)
+def price_days() -> tuple[date, date, date] | None:
+    """First and last delivery day in the warehouse, and the last day every
+    zone has complete: the map's default, so no zone is drawn half-known."""
+    try:
+        row = _query(
+            """
+            with days as (
+                select zone_code, delivery_date_local,
+                       count(distinct hour_start_utc) = any_value(hours_in_delivery_day)
+                           as complete
+                from marts.fct_day_ahead_price_hourly
+                group by zone_code, delivery_date_local
+            ),
+            all_complete as (
+                select delivery_date_local
+                from days
+                group by delivery_date_local
+                having count(*) filter (where complete)
+                    = (select count(distinct zone_code) from days)
+            )
+            select min(delivery_date_local), max(delivery_date_local),
+                   (select max(delivery_date_local) from all_complete)
+            from days
+            """
+        ).iloc[0]
+    except duckdb.CatalogException:
+        return None
+    if pd.isna(row.iloc[0]):
+        return None
+    first, last = (pd.Timestamp(value).date() for value in row.iloc[:2])
+    # No day complete everywhere (a zone only just added): fall back to the last.
+    complete = pd.Timestamp(row.iloc[2]).date() if not pd.isna(row.iloc[2]) else last
+    return first, last, complete
+
+
+@st.cache_data(ttl=CACHE_TTL_S)
+def daily_zone_prices(day: date) -> pd.DataFrame:
+    """One row per zone for a local delivery day: mean, lowest and highest hour."""
+    return _query(
+        """
+        select zone_code,
+               avg(price_eur_mwh) as price_eur_mwh,
+               min(price_eur_mwh) as min_price_eur_mwh,
+               max(price_eur_mwh) as max_price_eur_mwh,
+               count(*) as n_hours,
+               any_value(hours_in_delivery_day) as hours_in_delivery_day
+        from marts.fct_day_ahead_price_hourly
+        where delivery_date_local = ?
+        group by zone_code
+        order by price_eur_mwh desc
+        """,
+        [day],
     )
