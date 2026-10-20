@@ -62,6 +62,19 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
         where p.hour_start_utc <= timestamptz '2026-10-17 12:00:00+00'
         """
     )
+    # Load: Spain's forecast within 1% of the actual; DE-LU's 15% above it,
+    # steadily (the shape NL has on real data).
+    con.execute(
+        """
+        create table marts.fct_load_hourly as
+        select zone_code, hour_start_utc, delivery_date_local, utc_offset_minutes,
+               case when hour_start_utc <= timestamptz '2026-10-17 12:00:00+00'
+                    then 30000.0 end as actual_load_mw,
+               case when zone_code = 'DE-LU' then 34500.0 else 30300.0 end as forecast_load_mw,
+               forecast_load_mw - actual_load_mw as forecast_error_mw
+        from marts.fct_day_ahead_price_hourly
+        """
+    )
     # What dbt derives from the rows above (ADR-004): 16,500 of 22,500 MW
     # renewable, all of it low-carbon, 26.36 g/kWh; DE-LU with a lignite-like
     # proxy share, so its caption has something to say.
@@ -83,9 +96,23 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
 
 @pytest.fixture
 def run_page(tmp_path, monkeypatch):
-    def run(with_data: bool | None, zone: str | None = None, page: str | None = None) -> AppTest:
-        warehouse = tmp_path / f"{with_data}-{zone}.duckdb"
+    def run(
+        with_data: bool | None,
+        zone: str | None = None,
+        page: str | None = None,
+        noisy_load: bool = False,
+    ) -> AppTest:
+        warehouse = tmp_path / f"{with_data}-{zone}-{noisy_load}.duckdb"
         make_warehouse(warehouse, with_data)
+        if noisy_load:
+            # DE-LU's forecast alternates 15% above and below the actual.
+            con = duckdb.connect(warehouse)
+            con.execute(
+                "update marts.fct_load_hourly set "
+                "forecast_error_mw = case when hour(hour_start_utc) % 2 = 0 "
+                "then 4500.0 else -4500.0 end where zone_code = 'DE-LU'"
+            )
+            con.close()
         monkeypatch.setenv("WAREHOUSE_PATH", str(warehouse))
         # The connection is a cached resource that lives as long as the process;
         # without this, a second test would read the first test's warehouse.
@@ -102,7 +129,7 @@ def run_page(tmp_path, monkeypatch):
     return run
 
 
-def test_page_renders_metrics_and_all_three_charts(run_page):
+def test_page_renders_metrics_and_all_four_charts(run_page):
     at = run_page(with_data=True)
 
     assert not at.exception
@@ -113,7 +140,10 @@ def test_page_renders_metrics_and_all_three_charts(run_page):
     assert metrics["Renewable share"] == "73%"
     assert metrics["Low-carbon share"] == "100%"
     assert metrics["Carbon intensity"] == "26 g/kWh"
-    assert len(at.get("vega_lite_chart")) == 3  # price, mix, carbon intensity
+    assert len(at.get("vega_lite_chart")) == 4  # price, mix, load, carbon intensity
+    assert metrics["Average load"] == "30,000 MW"
+    assert any("off by 1.0% on average" in c.value for c in at.caption)
+    assert not any("do not cover the same consumption" in c.value for c in at.caption)
     assert any("Renewables made 73% of it, at 26 gCO₂eq per kWh" in m.value for m in at.markdown)
     assert not any("stated proxy" in c.value for c in at.caption)
     assert any("price averaged 49.25 €/MWh" in m.value for m in at.markdown)  # the lede
@@ -195,3 +225,19 @@ def test_a_zone_leaning_on_proxy_factors_says_its_intensity_is_approximate(run_p
     at = run_page(with_data=True, zone="DE-LU")
 
     assert any("23% of this zone's production" in c.value for c in at.caption)
+
+
+def test_a_steady_load_forecast_gap_is_called_a_definition_gap(run_page):
+    at = run_page(with_data=True, zone="DE-LU")
+
+    assert any(
+        "forecast sits 15% above the actual" in c.value
+        and "do not cover the same consumption" in c.value
+        for c in at.caption
+    )
+
+
+def test_a_large_but_two_sided_forecast_miss_is_not_a_definition_gap(run_page):
+    at = run_page(with_data=True, zone="DE-LU", noisy_load=True)
+
+    assert not any("do not cover the same consumption" in c.value for c in at.caption)
