@@ -21,6 +21,7 @@ from power_market_lens.config import Settings, load_settings
 from power_market_lens.flows.windows import RunWindows, Window
 from power_market_lens.ingest.entsoe_client import EntsoeClient
 from power_market_lens.ingest.jobs import (
+    load_crossborder_flows,
     load_day_ahead_prices,
     load_generation_per_type,
     load_total_load_actual,
@@ -37,17 +38,19 @@ JOBS: dict[str, Callable[..., int]] = {
     "generation_per_type": load_generation_per_type,
     "total_load_actual": load_total_load_actual,
     "total_load_forecast": load_total_load_forecast,
+    "crossborder_flows": load_crossborder_flows,
 }
 
 
 # Which window each entity is fetched over. What is published a day ahead
 # (prices, the load forecast) reaches into tomorrow; what is measured (actual
-# generation and load) stops at the current hour.
+# generation, load and physical flows) stops at the current hour.
 WINDOW_OF = {
     "day_ahead_prices": "day_ahead",
     "generation_per_type": "measured",
     "total_load_actual": "measured",
     "total_load_forecast": "day_ahead",
+    "crossborder_flows": "measured",
 }
 
 

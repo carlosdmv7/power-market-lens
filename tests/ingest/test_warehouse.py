@@ -6,7 +6,11 @@ import pytest
 
 from power_market_lens.config import Settings
 from power_market_lens.ingest.entsoe_client import EntsoeClient
-from power_market_lens.ingest.jobs import load_day_ahead_prices, load_generation_per_type
+from power_market_lens.ingest.jobs import (
+    load_crossborder_flows,
+    load_day_ahead_prices,
+    load_generation_per_type,
+)
 from power_market_lens.ingest.parsers import parse_generation_per_type
 from power_market_lens.ingest.warehouse import (
     METADATA_FIELDS,
@@ -133,6 +137,50 @@ def test_generation_job_tags_its_source(con):
     assert con.execute(
         "select distinct _source from raw.entsoe_generation_per_type"
     ).fetchall() == [("entsoe:A75",)]
+
+
+class _FlowsByDirection:
+    """Replays the recorded ES → FR and FR → ES documents; records each request."""
+
+    def __init__(self):
+        self.requests = []
+
+    def query_crossborder_flows(self, country_code_from, country_code_to, **_):
+        self.requests.append((country_code_from, country_code_to))
+        direction = "es-fr" if country_code_from == get_zone("ES").eic else "fr-es"
+        return (FIXTURES / f"recorded_flows_a11_{direction}_2026-03-29.xml").read_text()
+
+
+def test_flows_job_loads_both_directions_of_each_border_the_zone_owns(con, monkeypatch):
+    raw = _FlowsByDirection()
+    monkeypatch.setattr(
+        "power_market_lens.ingest.jobs.directions_owned_by",
+        lambda code: [(get_zone("ES"), get_zone("FR")), (get_zone("FR"), get_zone("ES"))],
+    )
+    start, end = datetime(2026, 3, 28, 23, tzinfo=UTC), datetime(2026, 3, 29, 22, tzinfo=UTC)
+
+    count = load_crossborder_flows(
+        EntsoeClient(raw, sleep=lambda _: None), con, get_zone("ES"), start, end, run_id="r"
+    )
+
+    es, fr = get_zone("ES").eic, get_zone("FR").eic
+    assert raw.requests == [(es, fr), (fr, es)]
+    assert count == 2 * 92
+    assert con.execute(
+        "select _source, out_zone_eic, in_zone_eic, count(*) from raw.entsoe_crossborder_flows "
+        "group by all order by all"
+    ).fetchall() == [("entsoe:A11", es, fr, 92), ("entsoe:A11", fr, es, 92)]
+
+
+def test_a_zone_without_borders_of_its_own_requests_nothing(con):
+    raw = _FlowsByDirection()
+    start, end = datetime(2026, 3, 28, 23, tzinfo=UTC), datetime(2026, 3, 29, 22, tzinfo=UTC)
+
+    count = load_crossborder_flows(
+        EntsoeClient(raw, sleep=lambda _: None), con, get_zone("IT-SARD"), start, end, run_id="r"
+    )
+
+    assert (count, raw.requests) == (0, [])
 
 
 def test_connect_requires_a_token():
