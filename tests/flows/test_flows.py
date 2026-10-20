@@ -30,6 +30,9 @@ class _ReplayRawClient:
     def query_load_forecast(self, *_, **__):
         return (FIXTURES / "recorded_load_a65_forecast_es_2026-03-29.xml").read_text()
 
+    def query_crossborder_flows(self, *_, **__):
+        return (FIXTURES / "recorded_flows_a11_es-fr_2026-03-29.xml").read_text()
+
 
 @pytest.fixture(scope="module", autouse=True)
 def prefect_server():
@@ -64,6 +67,7 @@ def test_daily_refresh_loads_both_entities_then_builds_dbt(wired):
         "ES/generation_per_type": 7,
         "ES/total_load_actual": 92,
         "ES/total_load_forecast": 92,
+        "ES/crossborder_flows": 4 * 92,  # ES-PT and ES-FR, both directions
     }
     assert dbt_calls == [
         ["deps"],

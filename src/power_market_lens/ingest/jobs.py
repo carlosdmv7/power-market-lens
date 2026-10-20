@@ -10,7 +10,7 @@ import duckdb
 
 from power_market_lens.ingest.entsoe_client import EntsoeClient
 from power_market_lens.ingest.warehouse import append_rows
-from power_market_lens.zones import BiddingZone
+from power_market_lens.zones import BiddingZone, directions_owned_by
 
 
 def load_day_ahead_prices(
@@ -91,6 +91,35 @@ def load_total_load_forecast(
         "entsoe_total_load",
         rows,
         source="entsoe:A65/A01",
+        window_start=start,
+        window_end=end,
+        run_id=run_id,
+    )
+
+
+def load_crossborder_flows(
+    client: EntsoeClient,
+    con: duckdb.DuckDBPyConnection,
+    zone: BiddingZone,
+    start: datetime,
+    end: datetime,
+    *,
+    run_id: str,
+) -> int:
+    """Physical flows on every border `zone` owns (zones.BORDERS), both ways.
+
+    A zone that owns no border loads nothing: its borders are another zone's.
+    """
+    rows = [
+        row
+        for out_zone, in_zone in directions_owned_by(zone.code)
+        for row in client.crossborder_flows(out_zone, in_zone, start, end)
+    ]
+    return append_rows(
+        con,
+        "entsoe_crossborder_flows",
+        rows,
+        source="entsoe:A11",
         window_start=start,
         window_end=end,
         run_id=run_id,
