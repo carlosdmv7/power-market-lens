@@ -46,3 +46,32 @@ class GenerationRow(_Row):
     quantity_mw: float
     document_mrid: str
     document_created_at: AwareDatetime
+
+
+class TotalLoadRow(_Row):
+    """One total load point (document A65): actual (A16) or day-ahead forecast (A01)."""
+
+    bidding_zone_eic: str
+    # ENTSO-E process type: A16 realised, A01 day-ahead forecast.
+    process_type: Literal["A16", "A01"]
+    period_start_utc: AwareDatetime
+    resolution_minutes: ResolutionMinutes
+    load_mw: float
+    document_mrid: str
+    document_created_at: AwareDatetime
+
+
+class CrossBorderFlowRow(_Row):
+    """One physical flow point from one zone into another (document A11).
+
+    ENTSO-E publishes each direction as its own non-negative series, so a
+    border is two series: out→in and in→out.
+    """
+
+    out_zone_eic: str
+    in_zone_eic: str
+    period_start_utc: AwareDatetime
+    resolution_minutes: ResolutionMinutes
+    flow_mw: float
+    document_mrid: str
+    document_created_at: AwareDatetime

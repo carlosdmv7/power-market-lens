@@ -18,7 +18,12 @@ import pandas as pd
 from pydantic import BaseModel
 
 from power_market_lens.config import Settings, load_settings
-from power_market_lens.ingest.models import DayAheadPriceRow, GenerationRow
+from power_market_lens.ingest.models import (
+    CrossBorderFlowRow,
+    DayAheadPriceRow,
+    GenerationRow,
+    TotalLoadRow,
+)
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +62,30 @@ RAW_TABLES: dict[str, tuple[type[BaseModel], str]] = {
         period_start_utc timestamptz not null,
         resolution_minutes smallint not null,
         quantity_mw double not null,
+        document_mrid varchar not null,
+        document_created_at timestamptz not null,
+        """,
+    ),
+    "entsoe_total_load": (
+        TotalLoadRow,
+        """
+        bidding_zone_eic varchar not null,
+        process_type varchar not null,
+        period_start_utc timestamptz not null,
+        resolution_minutes smallint not null,
+        load_mw double not null,
+        document_mrid varchar not null,
+        document_created_at timestamptz not null,
+        """,
+    ),
+    "entsoe_crossborder_flows": (
+        CrossBorderFlowRow,
+        """
+        out_zone_eic varchar not null,
+        in_zone_eic varchar not null,
+        period_start_utc timestamptz not null,
+        resolution_minutes smallint not null,
+        flow_mw double not null,
         document_mrid varchar not null,
         document_created_at timestamptz not null,
         """,

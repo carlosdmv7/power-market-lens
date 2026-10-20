@@ -20,7 +20,12 @@ from prefect.runtime import flow_run
 from power_market_lens.config import Settings, load_settings
 from power_market_lens.flows.windows import RunWindows, Window
 from power_market_lens.ingest.entsoe_client import EntsoeClient
-from power_market_lens.ingest.jobs import load_day_ahead_prices, load_generation_per_type
+from power_market_lens.ingest.jobs import (
+    load_day_ahead_prices,
+    load_generation_per_type,
+    load_total_load_actual,
+    load_total_load_forecast,
+)
 from power_market_lens.ingest.warehouse import connect, ensure_raw_tables
 from power_market_lens.zones import get_zone
 
@@ -30,12 +35,20 @@ DBT_PROJECT_DIR = Path(__file__).resolve().parents[3] / "transform"
 JOBS: dict[str, Callable[..., int]] = {
     "day_ahead_prices": load_day_ahead_prices,
     "generation_per_type": load_generation_per_type,
+    "total_load_actual": load_total_load_actual,
+    "total_load_forecast": load_total_load_forecast,
 }
 
 
-# Which window each entity is fetched over: day-ahead prices reach into
-# tomorrow, actual generation stops at the current hour.
-WINDOW_OF = {"day_ahead_prices": "prices", "generation_per_type": "generation"}
+# Which window each entity is fetched over. What is published a day ahead
+# (prices, the load forecast) reaches into tomorrow; what is measured (actual
+# generation and load) stops at the current hour.
+WINDOW_OF = {
+    "day_ahead_prices": "day_ahead",
+    "generation_per_type": "measured",
+    "total_load_actual": "measured",
+    "total_load_forecast": "day_ahead",
+}
 
 
 def make_client(settings: Settings) -> EntsoeClient:

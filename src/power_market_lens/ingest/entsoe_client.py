@@ -4,8 +4,9 @@ entsoe-py's `EntsoeRawClient` builds the requests and returns the raw XML; this
 wrapper adds what a backfill needs on top:
 
 - **Chunking.** A day-ahead request may span at most 100 documents (one per
-  day) and any request at most a year, so long windows are split into chunks
-  (30 days by default). A day-ahead request returns every delivery day it
+  day) and any request at most a year, so long windows are split into chunks:
+  30 days for prices and generation (a month of every production type is
+  already several MB), 90 for load and flows (one series each). A day-ahead request returns every delivery day it
   touches, so the day that straddles a chunk boundary arrives in both chunks
   (seen on real data: identical values). Staging keeps one copy.
 - **Backoff on transient failures.** A 429 (too many requests), any 5xx
@@ -32,8 +33,18 @@ import pandas as pd
 import requests
 
 from power_market_lens.config import Settings
-from power_market_lens.ingest.models import DayAheadPriceRow, GenerationRow
-from power_market_lens.ingest.parsers import parse_day_ahead_prices, parse_generation_per_type
+from power_market_lens.ingest.models import (
+    CrossBorderFlowRow,
+    DayAheadPriceRow,
+    GenerationRow,
+    TotalLoadRow,
+)
+from power_market_lens.ingest.parsers import (
+    parse_crossborder_flows,
+    parse_day_ahead_prices,
+    parse_generation_per_type,
+    parse_total_load,
+)
 from power_market_lens.zones import BiddingZone
 
 log = logging.getLogger(__name__)
@@ -44,6 +55,10 @@ _SECURITY_TOKEN = re.compile(r"(securityToken=)[^&\s'\"]+")
 def redact(text: str) -> str:
     """Hide the ENTSO-E security token in a URL or a message quoting one."""
     return _SECURITY_TOKEN.sub(r"\1***", text)
+
+
+# Days per request, by document (see the module docstring).
+CHUNK_DAYS = {"A44": 30, "A75": 30, "A65": 90, "A11": 90}
 
 
 def date_chunks(
@@ -104,10 +119,11 @@ class EntsoeClient:
     def __init__(
         self,
         raw_client: EntsoeRawClient,
-        chunk_days: int = 30,
+        chunk_days: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self._raw = raw_client
+        # None: each document's own size from CHUNK_DAYS. Tests pass one size.
         self._chunk_days = chunk_days
         self._sleep = sleep
 
@@ -140,6 +156,34 @@ class EntsoeClient:
             fetch, parse_generation_per_type, start, end, document="A75", zone=zone
         )
 
+    def total_load(
+        self, zone: BiddingZone, start: datetime, end: datetime, *, forecast: bool
+    ) -> list[TotalLoadRow]:
+        """Actual total load, or with `forecast` the day-ahead forecast."""
+
+        def fetch(chunk_start: pd.Timestamp, chunk_end: pd.Timestamp) -> str:
+            if forecast:
+                return self._raw.query_load_forecast(
+                    zone.eic, start=chunk_start, end=chunk_end, process_type="A01"
+                )
+            return self._raw.query_load(zone.eic, start=chunk_start, end=chunk_end)
+
+        return self._fetch_chunked(fetch, parse_total_load, start, end, document="A65", zone=zone)
+
+    def crossborder_flows(
+        self, out_zone: BiddingZone, in_zone: BiddingZone, start: datetime, end: datetime
+    ) -> list[CrossBorderFlowRow]:
+        """Physical flows from `out_zone` into `in_zone`: one direction of a border."""
+
+        def fetch(chunk_start: pd.Timestamp, chunk_end: pd.Timestamp) -> str:
+            return self._raw.query_crossborder_flows(
+                out_zone.eic, in_zone.eic, start=chunk_start, end=chunk_end
+            )
+
+        return self._fetch_chunked(
+            fetch, parse_crossborder_flows, start, end, document="A11", zone=out_zone
+        )
+
     def _fetch_chunked[T](
         self,
         fetch: Callable[[pd.Timestamp, pd.Timestamp], str],
@@ -156,7 +200,8 @@ class EntsoeClient:
             if (bound.minute, bound.second, bound.microsecond) != (0, 0, 0):
                 raise ValueError(f"Window bounds must be on the hour, got {bound}")
         rows: list[T] = []
-        for chunk_start, chunk_end in date_chunks(start, end, self._chunk_days):
+        chunk_days = self._chunk_days or CHUNK_DAYS[document]
+        for chunk_start, chunk_end in date_chunks(start, end, chunk_days):
             try:
                 xml_text = with_backoff(
                     lambda s=chunk_start, e=chunk_end: fetch(pd.Timestamp(s), pd.Timestamp(e)),
