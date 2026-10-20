@@ -1,0 +1,7 @@
+# Streamlit Community Cloud installs this file, found next to the entrypoint
+# before the repo root, so the app gets only what it imports: no dbt, no
+# Prefect, no entsoe-py. Same pins as pyproject.toml; a test keeps them equal.
+altair==6.3.0
+duckdb==1.5.6
+pandas==3.0.6
+streamlit==1.66.0
