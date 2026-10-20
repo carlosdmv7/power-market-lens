@@ -30,6 +30,11 @@ on:
       end:
         description: Backfill end date, YYYY-MM-DD, inclusive (backfill only)
         required: false
+      zones:
+        description: >-
+          Zone codes separated by spaces, e.g. "NL PT" (backfill only; empty
+          means all). Re-runs the zones a timed-out slice did not reach.
+        required: false
 
 concurrency:
   group: pipeline
@@ -102,4 +107,14 @@ jobs:
         env:
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}
-        run: uv run python -m power_market_lens.flows.backfill --start "$START" --end "$END"
+          ZONES: ${{ inputs.zones }}
+        # A slice loads zone by zone in code order, so one that hits the job
+        # timeout leaves the last zones unloaded; --zones re-runs only those.
+        # $ZONES is deliberately unquoted: one argument per zone code.
+        run: |
+          if [ -n "$ZONES" ]; then
+            # shellcheck disable=SC2086
+            uv run python -m power_market_lens.flows.backfill --start "$START" --end "$END" --zones $ZONES
+          else
+            uv run python -m power_market_lens.flows.backfill --start "$START" --end "$END"
+          fi
