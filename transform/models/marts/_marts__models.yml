@@ -131,6 +131,74 @@ models:
       - name: loaded_at
         description: Latest load among the hour's intervals, UTC.
 
+  - name: fct_interchange_hourly
+    description: >
+      Hourly physical interchange of each modelled zone with each zone it
+      borders, seen from the modelled zone: imports, exports and the net,
+      keyed in UTC with the zone's local delivery date and hour (ADR-003). A
+      border between two modelled zones appears once from each side.
+      Physical flows, not commercial schedules. Grain: zone × counterpart × UTC hour.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [bidding_zone_eic, counterpart_eic, hour_start_utc]
+      - complete_local_days:
+          arguments:
+            partition_by: bidding_zone_eic || '>' || counterpart_eic
+          config:
+            # TSOs leave real gaps (FR–GB, 2026-10-19 18:00 UTC, both
+            # directions): reported, not failed.
+            severity: warn
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the modelled zone whose point of view the row takes.
+        data_tests:
+          - not_null
+      - name: zone_code
+        description: Short label of the modelled zone, e.g. ES.
+        data_tests:
+          - not_null
+      - name: counterpart_eic
+        description: EIC code of the zone on the other side of the border.
+        data_tests:
+          - not_null
+      - name: counterpart_code
+        description: Short label of the counterpart, e.g. FR, CH.
+        data_tests:
+          # Null means a zone missing from both bidding_zones and neighbour_zones.
+          - not_null
+      - name: is_counterpart_modelled
+        description: True when the counterpart is one of the modelled zones, so the border also appears from its side.
+      - name: hour_start_utc
+        description: Start of the hour, UTC. The key; local columns are labels.
+        data_tests:
+          - not_null
+      - name: delivery_date_local
+        description: Date in the zone's local time.
+        data_tests:
+          - not_null
+      - name: delivery_hour_local
+        description: Local hour of day, 0–23 (repeats or skips 2 on DST changes).
+      - name: utc_offset_minutes
+        description: Local time minus UTC at that hour, minutes.
+      - name: hours_in_delivery_day
+        description: Hours in the local day, 23, 24 or 25.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [23, 24, 25]
+                quote: false
+      - name: import_mw
+        description: Mean flow from the counterpart into the zone over the hour, MW; null if not published.
+      - name: export_mw
+        description: Mean flow from the zone into the counterpart over the hour, MW; null if not published.
+      - name: net_import_mw
+        description: Imports minus exports, MW; negative for a net exporter. Null unless both directions were published.
+      - name: is_complete_hour
+        description: True when both directions cover the whole hour.
+      - name: loaded_at
+        description: Latest load among the hour's intervals, UTC.
+
 unit_tests:
   - name: test_fct_price_local_time_across_both_dst_changes
     description: >
@@ -181,3 +249,38 @@ unit_tests:
       rows:
         - {hour_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, n_intervals: 4, is_complete_hour: true, price_eur_mwh: 25, has_price_out_of_range: true}
         - {hour_start_utc: "2026-07-01 11:00:00+00", resolution_minutes: 15, n_intervals: 3, is_complete_hour: false, price_eur_mwh: -5, has_price_out_of_range: false}
+
+  - name: test_interchange_takes_each_modelled_zone_s_point_of_view
+    description: >
+      ES–FR, both modelled: one row from each side, imports and exports
+      swapped. ES–PT with PT → ES missing: both sides keep the direction they
+      have, and the net is null. FR–CH, CH outside the model: a row for FR
+      only. The hour after, ES–FR has three quarter-hours one way: incomplete.
+    model: fct_interchange_hourly
+    given:
+      - input: ref('int_crossborder_flows__aggregated_hourly')
+        rows:
+          - {out_zone_eic: ES, in_zone_eic: FR, hour_start_utc: "2026-07-01 10:00:00+00", flow_mw: 100, is_complete_hour: true}
+          - {out_zone_eic: FR, in_zone_eic: ES, hour_start_utc: "2026-07-01 10:00:00+00", flow_mw: 20, is_complete_hour: true}
+          - {out_zone_eic: ES, in_zone_eic: PT, hour_start_utc: "2026-07-01 10:00:00+00", flow_mw: 50, is_complete_hour: true}
+          - {out_zone_eic: FR, in_zone_eic: CH, hour_start_utc: "2026-07-01 10:00:00+00", flow_mw: 300, is_complete_hour: true}
+          - {out_zone_eic: CH, in_zone_eic: FR, hour_start_utc: "2026-07-01 10:00:00+00", flow_mw: 10, is_complete_hour: true}
+          - {out_zone_eic: ES, in_zone_eic: FR, hour_start_utc: "2026-07-01 11:00:00+00", flow_mw: 90, is_complete_hour: false}
+          - {out_zone_eic: FR, in_zone_eic: ES, hour_start_utc: "2026-07-01 11:00:00+00", flow_mw: 0, is_complete_hour: true}
+      - input: ref('bidding_zones')
+        rows:
+          - {bidding_zone_eic: ES, zone_code: ES, timezone: Europe/Madrid}
+          - {bidding_zone_eic: FR, zone_code: FR, timezone: Europe/Paris}
+          - {bidding_zone_eic: PT, zone_code: PT, timezone: Europe/Lisbon}
+      - input: ref('neighbour_zones')
+        rows:
+          - {bidding_zone_eic: CH, zone_code: CH}
+    expect:
+      rows:
+        - {zone_code: ES, counterpart_code: FR, is_counterpart_modelled: true, hour_start_utc: "2026-07-01 10:00:00+00", import_mw: 20, export_mw: 100, net_import_mw: -80, is_complete_hour: true}
+        - {zone_code: FR, counterpart_code: ES, is_counterpart_modelled: true, hour_start_utc: "2026-07-01 10:00:00+00", import_mw: 100, export_mw: 20, net_import_mw: 80, is_complete_hour: true}
+        - {zone_code: ES, counterpart_code: PT, is_counterpart_modelled: true, hour_start_utc: "2026-07-01 10:00:00+00", import_mw: null, export_mw: 50, net_import_mw: null, is_complete_hour: false}
+        - {zone_code: PT, counterpart_code: ES, is_counterpart_modelled: true, hour_start_utc: "2026-07-01 10:00:00+00", import_mw: 50, export_mw: null, net_import_mw: null, is_complete_hour: false}
+        - {zone_code: FR, counterpart_code: CH, is_counterpart_modelled: false, hour_start_utc: "2026-07-01 10:00:00+00", import_mw: 10, export_mw: 300, net_import_mw: -290, is_complete_hour: true}
+        - {zone_code: ES, counterpart_code: FR, is_counterpart_modelled: true, hour_start_utc: "2026-07-01 11:00:00+00", import_mw: 0, export_mw: 90, net_import_mw: -90, is_complete_hour: false}
+        - {zone_code: FR, counterpart_code: ES, is_counterpart_modelled: true, hour_start_utc: "2026-07-01 11:00:00+00", import_mw: 90, export_mw: 0, net_import_mw: 90, is_complete_hour: false}

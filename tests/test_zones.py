@@ -7,7 +7,8 @@ import pytest
 
 from power_market_lens.zones import BORDERS, NEIGHBOURS, ZONES, directions_owned_by, get_zone
 
-SEED = Path(__file__).parents[1] / "transform" / "seeds" / "bidding_zones.csv"
+SEEDS = Path(__file__).parents[1] / "transform" / "seeds"
+SEED = SEEDS / "bidding_zones.csv"
 
 
 def test_every_ingested_zone_is_in_the_dbt_seed_with_the_same_eic():
@@ -36,6 +37,14 @@ def test_only_de_lu_selects_an_auction_sequence():
 def test_unknown_zone_names_the_known_ones():
     with pytest.raises(ValueError, match=r"Unknown bidding zone 'XX'.*'ES'"):
         get_zone("XX")
+
+
+def test_every_neighbour_is_in_its_dbt_seed_with_the_same_eic():
+    # The interchange mart labels counterparts from this seed; a neighbour
+    # missing from it fails a not_null test on counterpart_code.
+    with (SEEDS / "neighbour_zones.csv").open() as f:
+        seed = {row["zone_code"]: row["bidding_zone_eic"] for row in csv.DictReader(f)}
+    assert {code: zone.eic for code, zone in NEIGHBOURS.items()} == seed
 
 
 def test_every_eic_matches_the_entsoe_area_of_the_same_name():
