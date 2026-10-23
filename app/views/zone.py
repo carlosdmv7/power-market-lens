@@ -33,7 +33,8 @@ SUBTITLE = (
     "per bidding zone. Source: ENTSO-E Transparency Platform; times are the zone's local time."
 )
 
-zones = data.zone_codes()
+names = data.zone_names()
+zones = list(names)
 if not zones:
     theme.render_header(TITLE, SUBTITLE)
     st.info("No data in the warehouse yet. The first pipeline run will fill this page.")
@@ -51,6 +52,7 @@ zone = zone_column.selectbox(
     "Bidding zone",
     zones,
     index=zones.index(initial),
+    format_func=names.get,
     help="ENTSO-E bidding zones: Italy has seven, Germany and Luxembourg share one.",
 )
 st.query_params["zone"] = zone
@@ -61,7 +63,7 @@ loaded_at = latest["loaded_at"].max()
 stale = datetime.now(UTC) - loaded_at > STALE_AFTER
 with header:
     theme.render_header(
-        f"{zone}: {TITLE[0].lower()}{TITLE[1:]}",
+        f"{names[zone]}: {TITLE[0].lower()}{TITLE[1:]}",
         SUBTITLE,
         facts=[
             theme.StripItem(
@@ -89,7 +91,7 @@ picked = dates_column.date_input(
 if complete_day < last_day:
     dates_column.caption(
         f"{last_day:%d %b} is one hour short: prices are set per day in Brussels time, "
-        f"so {zone}'s last local hour arrives with the next auction."
+        f"so {names[zone]}'s last local hour arrives with the next auction."
     )
 if not isinstance(picked, tuple) or len(picked) != 2:
     st.stop()  # the user is midway through picking a range
