@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
+import threading
 
 import duckdb
 import pytest
@@ -164,12 +165,36 @@ def test_flows_job_loads_both_directions_of_each_border_the_zone_owns(con, monke
     )
 
     es, fr = get_zone("ES").eic, get_zone("FR").eic
-    assert raw.requests == [(es, fr), (fr, es)]
+    assert sorted(raw.requests) == sorted([(es, fr), (fr, es)])  # fetched concurrently
     assert count == 2 * 92
     assert con.execute(
         "select _source, out_zone_eic, in_zone_eic, count(*) from raw.entsoe_crossborder_flows "
         "group by all order by all"
     ).fetchall() == [("entsoe:A11", es, fr, 92), ("entsoe:A11", fr, es, 92)]
+
+
+def test_flows_job_fetches_the_directions_concurrently(con, monkeypatch):
+    raw = _FlowsByDirection()
+    # Each request waits for the other one: done one at a time, the first times out.
+    both_in_flight = threading.Barrier(2, timeout=5)
+    replay = raw.query_crossborder_flows
+
+    def query(*args, **kwargs):
+        both_in_flight.wait()
+        return replay(*args, **kwargs)
+
+    raw.query_crossborder_flows = query
+    monkeypatch.setattr(
+        "power_market_lens.ingest.jobs.directions_owned_by",
+        lambda code: [(get_zone("ES"), get_zone("FR")), (get_zone("FR"), get_zone("ES"))],
+    )
+    start, end = datetime(2026, 3, 28, 23, tzinfo=UTC), datetime(2026, 3, 29, 22, tzinfo=UTC)
+
+    count = load_crossborder_flows(
+        EntsoeClient(raw, sleep=lambda _: None), con, get_zone("ES"), start, end, run_id="r"
+    )
+
+    assert count == 2 * 92
 
 
 def test_a_zone_without_borders_of_its_own_requests_nothing(con):
