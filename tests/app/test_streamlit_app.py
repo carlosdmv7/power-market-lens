@@ -22,6 +22,16 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
         return
     con.execute("set TimeZone = 'UTC'")
     con.execute("create schema marts")
+    # France has a row but no prices: the selector must leave it out.
+    con.execute(
+        """
+        create table marts.dim_bidding_zone as
+        select * from (
+            values ('DE-LU', 'Germany–Luxembourg', 'Germany'), ('ES', 'Spain', 'Spain'),
+                   ('PT', 'Portugal', 'Portugal'), ('FR', 'France', 'France')
+        ) as z(zone_code, zone_name, country_name)
+        """
+    )
     con.execute(
         """
         create table marts.fct_day_ahead_price_hourly as
@@ -104,8 +114,10 @@ def test_the_zone_comes_from_the_url_and_stays_in_it(run_page):
 
     assert not at.exception
     assert at.selectbox[0].value == "PT"
-    assert at.selectbox[0].options == ["DE-LU", "ES", "PT"]
+    # Names on screen, ordered by country; codes stay the value and the URL.
+    assert at.selectbox[0].options == ["Germany–Luxembourg", "Portugal", "Spain"]
     assert at.query_params["zone"] == "PT"
+    assert at.title[0].value.startswith("Portugal: day-ahead price")
     # 12:00 UTC is 13:00 in Lisbon: the local clock is the zone's own.
     assert any("only to Sat 17 Oct, 13:00" in c.value for c in at.caption)
 
