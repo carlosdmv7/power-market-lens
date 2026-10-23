@@ -91,3 +91,45 @@ sources:
             description: End of the window the load requested, UTC (exclusive).
           - name: _run_id
             description: Prefect flow-run id of the load, or a label for manual runs.
+      - name: total_load
+        identifier: entsoe_total_load
+        description: >
+          Total load (document A65), actual (process A16) and the day-ahead
+          forecast (A01), one row per interval per load.
+        config:
+          loaded_at_field: period_start_utc
+          # The forecast always reaches into tomorrow: judged on it, the table
+          # could never go stale. Freshness looks at the actual load only.
+          freshness:
+            warn_after: {count: 12, period: hour}
+            error_after: {count: 36, period: hour}
+            filter: process_type = 'A16'
+        columns:
+          - name: bidding_zone_eic
+            description: EIC code of the bidding zone.
+          - name: process_type
+            description: ENTSO-E process type, A16 (realised) or A01 (day-ahead forecast).
+          - name: period_start_utc
+            description: Start of the interval, UTC.
+          - name: resolution_minutes
+            description: Length of the interval in minutes (60 in Portugal, 15 elsewhere).
+          - name: load_mw
+            description: Average total load over the interval, MW.
+          - name: document_mrid
+            description: >-
+              Identifier of the ENTSO-E response the point came from. Regenerated on
+              every request, so it names a download, not a version of the data.
+          - name: document_created_at
+            description: >-
+              When ENTSO-E generated the response, UTC. The platform builds a document
+              per request, so this is the request time, not when the data was published.
+          - name: _loaded_at
+            description: When the loader appended the batch, UTC.
+          - name: _source
+            description: Source, document and process type, e.g. entsoe:A65/A16.
+          - name: _window_start
+            description: Start of the window the load requested, UTC.
+          - name: _window_end
+            description: End of the window the load requested, UTC (exclusive).
+          - name: _run_id
+            description: Prefect flow-run id of the load, or a label for manual runs.

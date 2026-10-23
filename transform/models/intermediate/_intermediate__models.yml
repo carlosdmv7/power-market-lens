@@ -94,3 +94,28 @@ models:
         description: Number of generation intervals averaged.
       - name: loaded_at
         description: Latest load among the hour's intervals, UTC.
+
+  - name: int_total_load__aggregated_hourly
+    description: >
+      Total load rolled up to the UTC hour, actual and day-ahead forecast side
+      by side, each from the finest resolution published for the hour.
+      Grain: zone × UTC hour.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [bidding_zone_eic, hour_start_utc]
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+      - name: hour_start_utc
+        description: Start of the hour, UTC.
+      - name: actual_load_mw
+        description: Mean actual load over the hour, MW; null until it is reported.
+      - name: forecast_load_mw
+        description: Mean day-ahead forecast load over the hour, MW.
+      - name: n_actual_intervals
+        description: Number of actual-load intervals averaged into the hour.
+      - name: resolution_minutes
+        description: Finest native resolution among the hour's intervals.
+      - name: loaded_at
+        description: Latest load among the hour's intervals, UTC.
