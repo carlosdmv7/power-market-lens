@@ -1,6 +1,40 @@
 version: 2
 
 models:
+  - name: dim_bidding_zone
+    description: >
+      One row per bidding zone, with the display names and country the app
+      uses for its zone selector and labels. Mirrors the bidding_zones seed so
+      the app reads marts only. Grain: zone.
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone. The key.
+        data_tests:
+          - unique
+          - not_null
+      - name: zone_code
+        description: Short zone label, e.g. ES, IT-CNOR. What the facts carry next to the EIC code.
+        data_tests:
+          - unique
+          - not_null
+      - name: zone_name
+        description: Zone name for display, e.g. Italy Centre-North.
+        data_tests:
+          - unique
+          - not_null
+      - name: country_code
+        description: ISO 3166-1 alpha-2 code of the zone's country; several zones share IT.
+        data_tests:
+          - not_null
+      - name: country_name
+        description: Country name for display, e.g. Italy.
+        data_tests:
+          - not_null
+      - name: timezone
+        description: IANA time zone of the zone's delivery day, e.g. Europe/Rome.
+        data_tests:
+          - not_null
+
   - name: fct_day_ahead_price_hourly
     description: >
       Hourly day-ahead price per bidding zone, keyed in UTC and labelled with
