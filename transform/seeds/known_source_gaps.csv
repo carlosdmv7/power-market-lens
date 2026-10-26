@@ -1,0 +1,7 @@
+model_name,bidding_zone_eic,zone_code,delivery_date_local,missing_local_hours,reason
+fct_generation_hourly,10YES-REE------0,ES,2025-04-28,13-23,Iberian blackout at 12:33 CEST; ENTSO-E A75 has no generation after it
+fct_generation_hourly,10YES-REE------0,ES,2025-04-29,0-23,Iberian blackout recovery; ENTSO-E A75 publishes no generation for the day
+fct_generation_hourly,10YFR-RTE------C,FR,2025-10-25,14,Not published on ENTSO-E A75 (checked 2026-10-26)
+fct_generation_hourly,10YFR-RTE------C,FR,2025-12-10,16-18,Not published on ENTSO-E A75 (checked 2026-10-26)
+fct_generation_hourly,10YFR-RTE------C,FR,2026-01-01,1-23,Not published on ENTSO-E A75 (checked 2026-10-26)
+fct_generation_hourly,10YFR-RTE------C,FR,2026-01-02,0-1,Not published on ENTSO-E A75 (checked 2026-10-26)

@@ -4,8 +4,10 @@
     For each partition (a bidding zone), every day strictly between the first
     and the last loaded day must exist and hold exactly `hours_in_delivery_day`
     distinct hours: 23, 24 or 25. The first and last days are skipped because a
-    load window rarely starts and ends on local midnight. Returns the failing
-    days with the hours found and expected.
+    load window rarely starts and ends on local midnight. Days listed for this
+    model in the known_source_gaps seed (data the publisher never released) are
+    skipped; any other incomplete day still fails. Returns the failing days
+    with the hours found and expected.
 #}
 {% test complete_local_days(model, partition_by, hour_column='hour_start_utc') %}
 
@@ -42,6 +44,14 @@ calendar as (
         ) as delivery_date_local
     from bounds
     where last_day - first_day >= 2
+),
+
+known_gaps as (
+    select
+        bidding_zone_eic as partition_key,
+        delivery_date_local
+    from {{ ref('known_source_gaps') }}
+    where model_name = '{{ model.identifier }}'
 )
 
 select
@@ -54,6 +64,12 @@ left join hours_per_day
     on
         calendar.partition_key = hours_per_day.partition_key
         and calendar.delivery_date_local = hours_per_day.delivery_date_local
-where hours_per_day.n_hours is null or hours_per_day.n_hours != hours_per_day.expected_hours
+left join known_gaps
+    on
+        calendar.partition_key = known_gaps.partition_key
+        and calendar.delivery_date_local = known_gaps.delivery_date_local
+where
+    (hours_per_day.n_hours is null or hours_per_day.n_hours != hours_per_day.expected_hours)
+    and known_gaps.partition_key is null
 
 {% endtest %}

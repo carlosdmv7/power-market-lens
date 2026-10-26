@@ -99,3 +99,48 @@ seeds:
         data_tests:
           - unique
           - not_null
+
+  - name: known_source_gaps
+    description: >
+      Local delivery days a mart cannot complete because the publisher never
+      released the data, each checked by re-requesting it from the source.
+      complete_local_days skips these (model, zone, day) rows and still fails
+      on any other incomplete day, so a new gap is reported, not hidden. If the
+      publisher later fills a gap, the row becomes harmless and can be removed.
+    config:
+      column_types:
+        model_name: varchar
+        bidding_zone_eic: varchar
+        zone_code: varchar
+        delivery_date_local: date
+        missing_local_hours: varchar
+        reason: varchar
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [model_name, bidding_zone_eic, delivery_date_local]
+    columns:
+      - name: model_name
+        description: Mart the gap shows in, e.g. fct_generation_hourly.
+        data_tests:
+          - not_null
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone with the gap.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('bidding_zones')
+                field: bidding_zone_eic
+      - name: zone_code
+        description: Short zone label, for reading the file; the EIC code is what the test joins on.
+      - name: delivery_date_local
+        description: Local delivery day that is incomplete.
+        data_tests:
+          - not_null
+      - name: missing_local_hours
+        description: Local hours absent at the source, as a range, e.g. 13-23. Documentation only.
+      - name: reason
+        description: Why the data is missing and when it was last checked at the source.
+        data_tests:
+          - not_null
