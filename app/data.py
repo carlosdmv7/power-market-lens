@@ -40,14 +40,24 @@ def _query(sql: str, params: list | None = None) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=CACHE_TTL_S)
-def zone_codes() -> list[str]:
-    """Zones with prices in the warehouse; empty before the first pipeline run."""
+def zone_names() -> dict[str, str]:
+    """Display name by zone code, for zones with prices; empty before the first pipeline run.
+
+    Ordered by country, then name, so Italy's seven zones sit together.
+    """
     try:
-        zones = _query("select distinct zone_code from marts.fct_day_ahead_price_hourly")
+        zones = _query(
+            """
+            select zone_code, zone_name
+            from marts.dim_bidding_zone
+            where zone_code in (select zone_code from marts.fct_day_ahead_price_hourly)
+            order by country_name, zone_name
+            """
+        )
     except duckdb.CatalogException:
         # The marts do not exist until the first pipeline run has built them.
-        return []
-    return sorted(zones["zone_code"])
+        return {}
+    return dict(zip(zones["zone_code"], zones["zone_name"], strict=True))
 
 
 @st.cache_data(ttl=CACHE_TTL_S)
