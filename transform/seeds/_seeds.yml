@@ -142,5 +142,41 @@ seeds:
         description: Local hours absent at the source, as a range, e.g. 13-23. Documentation only.
       - name: reason
         description: Why the data is missing and when it was last checked at the source.
+
+  - name: neighbour_zones
+    description: >
+      Bidding zones outside the model that border one of its zones. Only their
+      physical flows with a modelled zone are loaded, so they appear in the
+      marts as counterparts, never as zones of their own. Same keys as
+      bidding_zones; a Python test keeps it in sync with zones.NEIGHBOURS.
+    config:
+      column_types:
+        bidding_zone_eic: varchar
+        zone_code: varchar
+        zone_name: varchar
+        country_code: varchar
+        country_name: varchar
+    columns:
+      - name: bidding_zone_eic
+        description: ENTSO-E Energy Identification Code of the bidding zone.
+        data_tests:
+          - unique
+          - not_null
+      - name: zone_code
+        description: Short zone label, e.g. CH, DK-1.
+        data_tests:
+          - unique
+          - not_null
+      - name: zone_name
+        description: Zone name for display, e.g. Denmark West.
+        data_tests:
+          - unique
+          - not_null
+      - name: country_code
+        description: ISO 3166-1 alpha-2 code of the zone's country.
+        data_tests:
+          - not_null
+      - name: country_name
+        description: Country name in English.
         data_tests:
           - not_null
