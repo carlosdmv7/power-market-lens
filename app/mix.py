@@ -44,13 +44,20 @@ def group_of(psr_type: str) -> str:
 
 
 def grouped_mix(generation: pd.DataFrame) -> pd.DataFrame:
-    """Hourly generation per group, long format: time, group, generation_mw, share."""
+    """Hourly generation per group, long format: time, group, generation_mw, share.
+
+    Types are summed within each UTC hour, then hours sharing a local `time`
+    are averaged: on the October DST change 02:00 happens twice, and summing
+    the two hours drew a spike of double the output.
+    """
     if generation.empty:
         return pd.DataFrame(columns=["time", "group", "generation_mw", "share"])
     grouped = (
         generation.assign(group=generation["psr_type"].map(group_of))
-        .groupby(["time", "group"], as_index=False)["generation_mw"]
+        .groupby(["hour_start_utc", "time", "group"], as_index=False)["generation_mw"]
         .sum()
+        .groupby(["time", "group"], as_index=False)["generation_mw"]
+        .mean()
     )
     total = grouped.groupby("time")["generation_mw"].transform("sum")
     grouped["share"] = grouped["generation_mw"] / total

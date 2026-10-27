@@ -40,7 +40,12 @@ def time_x(domain: tuple[pd.Timestamp, pd.Timestamp], **kwargs) -> alt.X:
 
 
 def price_chart(prices: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) -> alt.LayerChart:
-    """Hourly price, one series. A zero line appears when prices go negative."""
+    """Hourly price, one series. A zero line appears when prices go negative.
+
+    The October DST change repeats 02:00 local: its two prices are drawn as
+    their mean, one point per x, as the mix chart does with generation.
+    """
+    prices = prices.groupby("time", as_index=False)["price_eur_mwh"].mean()
     hover = alt.selection_point(
         fields=["time"], nearest=True, on="pointerover", clear="pointerout", empty=False
     )
