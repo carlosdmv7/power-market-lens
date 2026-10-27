@@ -123,8 +123,10 @@ def load_chart(load: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) ->
 
     Two series, so a legend; the forecast is dashed as well as a second hue,
     so the pair never rests on colour alone. The forecast runs into tomorrow;
-    the actual stops at the latest reported hour.
+    the actual stops at the latest reported hour. The repeated October DST
+    hour is drawn as its mean, as in the other charts.
     """
+    load = load.groupby("time", as_index=False)[["actual_load_mw", "forecast_load_mw"]].mean()
     hover = alt.selection_point(
         fields=["time"], nearest=True, on="pointerover", clear="pointerout", empty=False
     )
