@@ -23,7 +23,14 @@ def x_domains(chart) -> list:
 def test_price_and_mix_charts_share_the_time_domain():
     hours = pd.date_range("2026-10-14 00:00", "2026-10-20 23:00", freq="h")
     prices = pd.DataFrame({"time": hours, "price_eur_mwh": 50.0})
-    generation = pd.DataFrame({"time": hours[:130], "psr_type": "B16", "generation_mw": 9000.0})
+    generation = pd.DataFrame(
+        {
+            "time": hours[:130],
+            "hour_start_utc": hours[:130],
+            "psr_type": "B16",
+            "generation_mw": 9000.0,
+        }
+    )
     domain = (hours[0], hours[-1])
 
     price_domains = x_domains(charts.price_chart(prices, domain))

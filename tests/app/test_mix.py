@@ -9,7 +9,8 @@ import mix  # noqa: E402
 
 
 def generation(rows):
-    return pd.DataFrame(rows, columns=["time", "psr_type", "generation_mw"])
+    frame = pd.DataFrame(rows, columns=["time", "psr_type", "generation_mw"])
+    return frame.assign(hour_start_utc=frame["time"])  # no DST change: one hour per time
 
 
 def test_every_production_type_lands_in_exactly_one_of_five_groups():
@@ -60,3 +61,23 @@ def test_shares_rank_groups_over_the_period():
 
     assert list(top.index) == ["Nuclear", "Solar"]
     assert round(top.iloc[0], 2) == 0.6
+
+
+def test_the_repeated_dst_hour_is_averaged_not_summed():
+    # 25 Oct 2026 in Madrid: 00:00 and 01:00 UTC are both 02:00 local.
+    local = pd.Timestamp("2026-10-25 02:00")
+    frame = pd.DataFrame(
+        {
+            "hour_start_utc": pd.to_datetime(["2026-10-25 00:00", "2026-10-25 01:00"] * 2),
+            "time": [local] * 4,
+            "psr_type": ["B14", "B14", "B16", "B16"],
+            "generation_mw": [7000.0, 7100.0, 0.0, 0.0],
+        }
+    )
+
+    grouped = mix.grouped_mix(frame)
+
+    assert grouped.set_index("group")["generation_mw"].to_dict() == {
+        "Nuclear": 7050.0,
+        "Solar": 0.0,
+    }
