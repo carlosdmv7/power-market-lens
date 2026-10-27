@@ -120,6 +120,19 @@ models:
         data_tests:
           # Null means a code missing from the entsoe_psr_types seed.
           - not_null
+      - name: technology
+        description: Short technology name from the technology_mapping seed, e.g. Wind onshore.
+        data_tests:
+          # Null means a code missing from the technology_mapping seed.
+          - not_null
+      - name: display_group
+        description: >-
+          The app's five generation groups (Nuclear, Fossil, Hydro & other,
+          Solar, Wind), from the technology_mapping seed (ADR-004).
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [Nuclear, Fossil, Hydro & other, Solar, Wind]
       - name: generation_mw
         description: Mean generation over the hour, MW (= MWh over a complete hour).
       - name: consumption_mw
@@ -128,6 +141,79 @@ models:
         description: Finest native resolution among the hour's intervals.
       - name: n_generation_intervals
         description: Number of generation intervals averaged into the hour.
+      - name: loaded_at
+        description: Latest load among the hour's intervals, UTC.
+
+  - name: fct_generation_mix_hourly
+    description: >
+      Production-based renewable share, low-carbon share and lifecycle carbon
+      intensity per zone and hour (ADR-004), from fct_generation_hourly, the
+      technology_mapping seed and IPCC AR5 lifecycle medians. Storage
+      (pumped hydro, batteries) re-delivers energy produced earlier, so it is
+      left out of production and reported as storage_discharge_mw.
+      proxy_factor_share says how much of the intensity rests on a stand-in
+      factor. Grain: zone × UTC hour.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [bidding_zone_eic, hour_start_utc]
+    columns:
+      - name: bidding_zone_eic
+        description: EIC code of the bidding zone.
+        data_tests:
+          - not_null
+      - name: zone_code
+        description: Short zone label, e.g. ES.
+        data_tests:
+          - not_null
+      - name: hour_start_utc
+        description: Start of the hour, UTC.
+        data_tests:
+          - not_null
+      - name: delivery_date_local
+        description: Date in the zone's local time.
+      - name: delivery_hour_local
+        description: Local hour of day, 0–23.
+      - name: utc_offset_minutes
+        description: Local time minus UTC at that hour, minutes.
+      - name: hours_in_delivery_day
+        description: Hours in the local day, 23, 24 or 25.
+      - name: production_mw
+        description: Mean generation over the hour excluding storage, MW.
+      - name: renewable_share
+        description: Renewable share of production, 0–1.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: low_carbon_share
+        description: Renewable plus nuclear share of production, 0–1.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 0
+                max_value: 1
+      - name: carbon_intensity_g_per_kwh
+        description: >-
+          Generation-weighted IPCC AR5 lifecycle median of the hour's production,
+          gCO2eq/kWh. Bounded by the lowest and highest factor in the seed.
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments:
+                min_value: 11
+                max_value: 820
+      - name: proxy_factor_share
+        description: Share of production whose factor is a stand-in (no AR5 row of its own), 0–1.
+      - name: storage_discharge_mw
+        description: Mean discharge of storage over the hour, MW; not part of production.
+      - name: unfactored_mw
+        description: Production with no emission factor, MW. Must stay zero.
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [0]
+                quote: false
       - name: loaded_at
         description: Latest load among the hour's intervals, UTC.
 
@@ -181,3 +267,33 @@ unit_tests:
       rows:
         - {hour_start_utc: "2026-07-01 10:00:00+00", resolution_minutes: 15, n_intervals: 4, is_complete_hour: true, price_eur_mwh: 25, has_price_out_of_range: true}
         - {hour_start_utc: "2026-07-01 11:00:00+00", resolution_minutes: 15, n_intervals: 3, is_complete_hour: false, price_eur_mwh: -5, has_price_out_of_range: false}
+
+
+  - name: test_generation_mix_weights_factors_and_sets_storage_aside
+    description: >
+      Nuclear 100 MW (12 g/kWh), gas 100 MW (490) and lignite 100 MW (proxy,
+      coal 820), plus 50 MW of pumped-storage discharge: production is 300 MW,
+      intensity (1200 + 49000 + 82000) / 300 = 440.67, a third low-carbon, a
+      third on a proxy factor, nothing renewable, 50 MW of storage.
+    model: fct_generation_mix_hourly
+    given:
+      - input: ref('fct_generation_hourly')
+        rows:
+          - {bidding_zone_eic: Z, zone_code: ZZ, hour_start_utc: "2026-07-01 10:00:00+00", psr_type: B14, generation_mw: 100}
+          - {bidding_zone_eic: Z, zone_code: ZZ, hour_start_utc: "2026-07-01 10:00:00+00", psr_type: B04, generation_mw: 100}
+          - {bidding_zone_eic: Z, zone_code: ZZ, hour_start_utc: "2026-07-01 10:00:00+00", psr_type: B02, generation_mw: 100}
+          - {bidding_zone_eic: Z, zone_code: ZZ, hour_start_utc: "2026-07-01 10:00:00+00", psr_type: B10, generation_mw: 50}
+      - input: ref('technology_mapping')
+        rows:
+          - {psr_type: B14, is_renewable: false, is_low_carbon: true, is_storage: false, factor_technology: Nuclear, is_proxy_factor: false}
+          - {psr_type: B04, is_renewable: false, is_low_carbon: false, is_storage: false, factor_technology: Gas — Combined Cycle, is_proxy_factor: false}
+          - {psr_type: B02, is_renewable: false, is_low_carbon: false, is_storage: false, factor_technology: Coal — PC, is_proxy_factor: true}
+          - {psr_type: B10, is_renewable: false, is_low_carbon: false, is_storage: true, factor_technology: null, is_proxy_factor: false}
+      - input: ref('emission_factors_ipcc_ar5')
+        rows:
+          - {technology: Nuclear, lifecycle_median_g_per_kwh: 12}
+          - {technology: Gas — Combined Cycle, lifecycle_median_g_per_kwh: 490}
+          - {technology: Coal — PC, lifecycle_median_g_per_kwh: 820}
+    expect:
+      rows:
+        - {production_mw: 300, renewable_share: 0, low_carbon_share: 0.3333333333333333, carbon_intensity_g_per_kwh: 440.6666666666667, proxy_factor_share: 0.3333333333333333, storage_discharge_mw: 50, unfactored_mw: 0}

@@ -1,0 +1,14 @@
+technology,lifecycle_min_g_per_kwh,lifecycle_median_g_per_kwh,lifecycle_max_g_per_kwh
+Coal — PC,740,820,910
+Gas — Combined Cycle,410,490,650
+Biomass — cofiring,620,740,890
+Biomass — dedicated,130,230,420
+Geothermal,6.0,38,79
+Hydropower,1.0,24,2200
+Nuclear,3.7,12,110
+Concentrated Solar Power,8.8,27,63
+Solar PV — rooftop,26,41,60
+Solar PV — utility,18,48,180
+Wind onshore,7.0,11,56
+Wind offshore,8.0,12,35
+Ocean,5.6,17,28
