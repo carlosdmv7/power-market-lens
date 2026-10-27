@@ -12,7 +12,7 @@ axis.
 import altair as alt
 from mix import GROUP_COLORS, GROUP_ORDER
 import pandas as pd
-from theme import INK_MUTED, PETROL_900, RUST_500, SURFACE
+from theme import INK_MUTED, PETROL_900, RUST_500, SURFACE, TEAL_500
 
 TIME_FORMAT = "%a %d %b, %H:%M"
 # One tick per day: at the default density, day-formatted ticks every 12 hours
@@ -113,6 +113,68 @@ def intensity_chart(
         domain=domain,
     )
     return alt.layer(*layers).properties(height=220)
+
+
+LOAD_SERIES = {"Actual": PETROL_900, "Day-ahead forecast": TEAL_500}
+
+
+def load_chart(load: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) -> alt.LayerChart:
+    """Actual load (solid) against the TSO's day-ahead forecast (dashed).
+
+    Two series, so a legend; the forecast is dashed as well as a second hue,
+    so the pair never rests on colour alone. The forecast runs into tomorrow;
+    the actual stops at the latest reported hour. The repeated October DST
+    hour is drawn as its mean, as in the other charts.
+    """
+    load = load.groupby("time", as_index=False)[["actual_load_mw", "forecast_load_mw"]].mean()
+    hover = alt.selection_point(
+        fields=["time"], nearest=True, on="pointerover", clear="pointerout", empty=False
+    )
+    long = load.melt(
+        id_vars="time",
+        value_vars=["actual_load_mw", "forecast_load_mw"],
+        var_name="series",
+        value_name="load_mw",
+    ).dropna(subset=["load_mw"])
+    long["series"] = long["series"].map(
+        {"actual_load_mw": "Actual", "forecast_load_mw": "Day-ahead forecast"}
+    )
+    lines = (
+        alt.Chart(long)
+        .mark_line(strokeWidth=2, clip=True)
+        .encode(
+            x=time_x(domain, title=None, axis=DAY_AXIS),
+            y=alt.Y("load_mw:Q", title="MW", axis=y_axis()),
+            color=alt.Color(
+                "series:N",
+                title=None,
+                scale=alt.Scale(domain=list(LOAD_SERIES), range=list(LOAD_SERIES.values())),
+                legend=alt.Legend(orient="top"),
+            ),
+            strokeDash=alt.StrokeDash(
+                "series:N",
+                scale=alt.Scale(domain=list(LOAD_SERIES), range=[[1, 0], [5, 3]]),
+                legend=None,
+            ),
+        )
+    )
+    targets = (
+        alt.Chart(load)
+        .mark_rule(opacity=0, strokeWidth=12)
+        .encode(
+            x=time_x(domain),
+            tooltip=[
+                alt.Tooltip("time:T", title="Hour", format=TIME_FORMAT),
+                alt.Tooltip("actual_load_mw:Q", title="Actual (MW)", format=",.0f"),
+                alt.Tooltip("forecast_load_mw:Q", title="Forecast (MW)", format=",.0f"),
+            ],
+        )
+        .add_params(hover)
+    )
+    rule = (
+        alt.Chart(load).mark_rule(color=INK_MUTED).encode(x=time_x(domain)).transform_filter(hover)
+    )
+    return alt.layer(lines, rule, targets).properties(height=240)
 
 
 def mix_chart(mix: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]) -> alt.LayerChart:

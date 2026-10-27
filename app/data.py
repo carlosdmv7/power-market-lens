@@ -124,6 +124,21 @@ def hourly_mix_metrics(zone_code: str, start: date, end: date) -> pd.DataFrame:
     )
 
 
+@st.cache_data(ttl=CACHE_TTL_S)
+def hourly_load(zone_code: str, start: date, end: date) -> pd.DataFrame:
+    """Actual total load and the TSO's day-ahead forecast per hour."""
+    return _query(
+        """
+        select hour_start_utc, utc_offset_minutes, actual_load_mw, forecast_load_mw,
+               forecast_error_mw
+        from marts.fct_load_hourly
+        where zone_code = ? and delivery_date_local between ? and ?
+        order by hour_start_utc
+        """,
+        [zone_code, start, end],
+    )
+
+
 @st.cache_data
 def zone_geometry() -> list[dict]:
     """The map's GeoJSON features: modelled zones, neighbours, context land."""
