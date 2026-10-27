@@ -51,14 +51,31 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
         """
         create table marts.fct_generation_hourly as
         select p.zone_code, p.hour_start_utc, p.delivery_date_local, p.utc_offset_minutes, g.psr_type,
-               g.psr_name, g.mw as generation_mw
+               g.psr_name, g.display_group, g.mw as generation_mw
         from marts.fct_day_ahead_price_hourly as p
         cross join (
-            values ('B16', 'Solar', 9000.0), ('B19', 'Wind Onshore', 7000.0),
-                   ('B14', 'Nuclear', 6000.0), ('B11', 'Hydro Run-of-river and poundage', 500.0)
-        ) as g(psr_type, psr_name, mw)
+            values ('B16', 'Solar', 'Solar', 9000.0), ('B19', 'Wind Onshore', 'Wind', 7000.0),
+                   ('B14', 'Nuclear', 'Nuclear', 6000.0),
+                   ('B11', 'Hydro Run-of-river and poundage', 'Hydro & other', 500.0)
+        ) as g(psr_type, psr_name, display_group, mw)
         -- Actual generation stops at the latest published hour; prices run on.
         where p.hour_start_utc <= timestamptz '2026-10-17 12:00:00+00'
+        """
+    )
+    # What dbt derives from the rows above (ADR-004): 16,500 of 22,500 MW
+    # renewable, all of it low-carbon, 26.36 g/kWh; DE-LU with a lignite-like
+    # proxy share, so its caption has something to say.
+    con.execute(
+        """
+        create table marts.fct_generation_mix_hourly as
+        select zone_code, hour_start_utc, delivery_date_local, utc_offset_minutes,
+               sum(generation_mw) as production_mw,
+               16500 / 22500 as renewable_share,
+               1.0 as low_carbon_share,
+               593000 / 22500 as carbon_intensity_g_per_kwh,
+               case when zone_code = 'DE-LU' then 0.23 else 0.0 end as proxy_factor_share
+        from marts.fct_generation_hourly
+        group by all
         """
     )
     con.close()
@@ -85,7 +102,7 @@ def run_page(tmp_path, monkeypatch):
     return run
 
 
-def test_page_renders_metrics_and_both_charts(run_page):
+def test_page_renders_metrics_and_all_three_charts(run_page):
     at = run_page(with_data=True)
 
     assert not at.exception
@@ -93,7 +110,12 @@ def test_page_renders_metrics_and_both_charts(run_page):
     metrics = {m.label: m.value for m in at.metric}
     assert metrics["Hours at or below zero"] == "7"  # 13:00 UTC on each of 7 days
     assert metrics["Cheapest hour"] == "-1.00 €/MWh"
-    assert len(at.get("vega_lite_chart")) == 2
+    assert metrics["Renewable share"] == "73%"
+    assert metrics["Low-carbon share"] == "100%"
+    assert metrics["Carbon intensity"] == "26 g/kWh"
+    assert len(at.get("vega_lite_chart")) == 3  # price, mix, carbon intensity
+    assert any("Renewables made 73% of it, at 26 gCO₂eq per kWh" in m.value for m in at.markdown)
+    assert not any("stated proxy" in c.value for c in at.caption)
     assert any("price averaged 49.25 €/MWh" in m.value for m in at.markdown)  # the lede
     # 12:00 UTC is 14:00 in Madrid.
     assert any("only to Sat 17 Oct, 14:00" in c.value for c in at.caption)
@@ -167,3 +189,9 @@ def test_map_page_on_an_empty_warehouse_explains_itself(run_page):
 
     assert not at.exception
     assert "No data in the warehouse yet" in at.info[0].value
+
+
+def test_a_zone_leaning_on_proxy_factors_says_its_intensity_is_approximate(run_page):
+    at = run_page(with_data=True, zone="DE-LU")
+
+    assert any("23% of this zone's production" in c.value for c in at.caption)
