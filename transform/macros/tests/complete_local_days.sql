@@ -1,22 +1,23 @@
 {#
-    Generic test: every local delivery day has all its hours (ADR-003).
+    Generic test: every local delivery day has all its intervals (ADR-003).
 
     For each partition (a bidding zone), every day strictly between the first
     and the last loaded day must exist and hold exactly `hours_in_delivery_day`
-    distinct hours: 23, 24 or 25. The first and last days are skipped because a
-    load window rarely starts and ends on local midnight. Days listed for this
-    model in the known_source_gaps seed (data the publisher never released) are
-    skipped; any other incomplete day still fails. Returns the failing days
-    with the hours found and expected.
+    × `intervals_per_hour` distinct intervals: 23, 24 or 25 hours, or 92, 96
+    or 100 quarter-hours with `intervals_per_hour=4`. The first and last days
+    are skipped because a load window rarely starts and ends on local midnight.
+    Days listed for this model in the known_source_gaps seed (data the
+    publisher never released) are skipped; any other incomplete day still
+    fails. Returns the failing days with the intervals found and expected.
 #}
-{% test complete_local_days(model, partition_by, hour_column='hour_start_utc') %}
+{% test complete_local_days(model, partition_by, hour_column='hour_start_utc', intervals_per_hour=1) %}
 
 with hours_per_day as (
     select
         {{ partition_by }} as partition_key,
         delivery_date_local,
         count(distinct {{ hour_column }}) as n_hours,
-        any_value(hours_in_delivery_day) as expected_hours
+        any_value(hours_in_delivery_day) * {{ intervals_per_hour }} as expected_hours
     from {{ model }}
     group by 1, 2
 ),
