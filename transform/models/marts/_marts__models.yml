@@ -80,9 +80,23 @@ models:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [bidding_zone_eic, hour_start_utc, psr_type]
+      # Generation is measured, and a TSO can publish an hour days late. Every
+      # run re-pulls the last 7 days (TRAILING_WINDOW_DAYS), so a gap inside
+      # that window may still fill by itself: it warns. Once a day is out of
+      # the window nothing will fill it, and it fails until it is fixed or
+      # recorded in known_source_gaps (ADR-006).
       - complete_local_days:
+          name: complete_local_days_fct_generation_hourly_settled
           arguments:
             partition_by: bidding_zone_eic
+            older_than_days: 7
+      - complete_local_days:
+          name: complete_local_days_fct_generation_hourly_recent
+          arguments:
+            partition_by: bidding_zone_eic
+            within_days: 7
+          config:
+            severity: warn
     columns:
       - name: bidding_zone_eic
         description: EIC code of the bidding zone.
