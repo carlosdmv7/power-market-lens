@@ -126,6 +126,25 @@ jobs:
             uv run python -m power_market_lens.flows.backfill --start "$START" --end "$END"
           fi
 
+      # dbt's own record of the build: which models and tests ran, how long
+      # each took and which failed (run_results.json), the compiled project
+      # (manifest.json) and the freshness results (sources.json). Without this
+      # they are lost with the runner. Kept 30 days for post-mortems; the
+      # manifest is also what slim CI will defer to (roadmap, Phase 4).
+      # always(): a failed build is the one whose results matter most. A
+      # scheduled attempt that skipped has no files, hence `ignore`.
+      - name: Keep dbt artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dbt-artifacts-prod
+          path: |
+            transform/target/manifest.json
+            transform/target/run_results.json
+            transform/target/sources.json
+          if-no-files-found: ignore
+          retention-days: 30
+
   # Any ending but success opens an incident issue (or comments on the open
   # one): a failure, a timeout, or a cancellation, which GitHub itself never
   # reports. `always()` is what lets this job start after a cancelled one.
