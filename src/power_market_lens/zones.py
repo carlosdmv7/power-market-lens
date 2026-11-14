@@ -6,6 +6,11 @@ to build API requests; a test keeps the two in sync.
 """
 
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
+
+# The clock SDAC runs on: auctions, delivery days and price limits are defined
+# in Brussels time for every zone. Same value as the dbt var sdac_market_timezone.
+SDAC_TIMEZONE = ZoneInfo("Europe/Brussels")
 
 
 @dataclass(frozen=True)

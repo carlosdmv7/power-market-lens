@@ -1,0 +1,65 @@
+name: Data freshness
+
+# Is power_prod fresh? Asked on its own schedule, whether or not the Pipeline
+# workflow ran, finished, or was even triggered (ADR-007). The Pipeline checks
+# its sources too, but only when it gets as far as dbt: from 2026-11-06 to
+# 2026-11-14 every run was cancelled at its timeout and nothing looked red.
+#
+# This workflow only reads. It fails (red badge, email) and opens an incident
+# issue when a zone has no prices for today's delivery day, or the newest load
+# is older than 36 hours: src/power_market_lens/freshness.py.
+on:
+  # Today's prices were auctioned yesterday at midday, so they are due from
+  # Brussels midnight (22:00 or 23:00 UTC). GitHub delays and drops scheduled
+  # runs, hence two attempts: one right after midnight, one in the morning.
+  schedule:
+    - cron: "23 23 * * *"
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: freshness
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: power_prod is fresh
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      APP_ENV: prod
+      MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.0  # publishes no floating major tag
+        with:
+          version-file: pyproject.toml  # [tool.uv] required-version
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      # shell: bash turns on pipefail, so the check's exit status survives tee.
+      - name: Check the marts
+        shell: bash
+        run: uv run python -m power_market_lens.freshness | tee freshness.txt
+
+      # failure(): also when the check could not run at all (no token, no
+      # connection). Not knowing whether the data is fresh is an incident too.
+      - name: Open or update the incident issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          report="The freshness check did not produce a result; see the run log."
+          if [ -s freshness.txt ]; then report="$(cat freshness.txt)"; fi
+          bash .github/scripts/report_incident.sh "$report"

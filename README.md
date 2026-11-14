@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/carlosdmv7/power-market-lens/actions/workflows/ci.yml/badge.svg)](https://github.com/carlosdmv7/power-market-lens/actions/workflows/ci.yml)
 [![Pipeline](https://github.com/carlosdmv7/power-market-lens/actions/workflows/pipeline.yml/badge.svg)](https://github.com/carlosdmv7/power-market-lens/actions/workflows/pipeline.yml)
+[![Data freshness](https://github.com/carlosdmv7/power-market-lens/actions/workflows/freshness.yml/badge.svg)](https://github.com/carlosdmv7/power-market-lens/actions/workflows/freshness.yml)
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -126,6 +127,21 @@ Each build runs 82 dbt nodes: seeds, models, data tests and unit tests. Among th
 After every daily build, `dbt source freshness` checks the newest interval ENTSO-E has
 delivered. A run that succeeds but brings nothing new turns the pipeline red once the data
 is 36 hours old, and logs a warning after 12.
+
+### When it breaks
+
+In November 2026 an expired ENTSO-E token left prod stale for eight days without one red
+run: every run retried until its job timeout, and GitHub reports a timed-out job as
+"cancelled", not failed. What changed
+([ADR-007](docs/adr/0007-alerting-and-the-freshness-watchdog.md)):
+
+- A rejected token (HTTP 401 or 403) stops the run at the first request, in seconds, with a
+  message that names the secret to renew.
+- The working steps carry their own timeout, so a hung run ends red instead of cancelled,
+  and any run that does not succeed opens a `pipeline-incident` issue.
+- A separate **Data freshness** workflow asks the marts, on its own schedule, whether every
+  zone has prices for today. It does not depend on the pipeline having run, and its badge
+  is at the top of this page.
 
 ## Quickstart
 

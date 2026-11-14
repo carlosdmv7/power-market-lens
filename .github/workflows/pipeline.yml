@@ -48,7 +48,7 @@ jobs:
     name: ${{ inputs.mode || 'daily' }} → power_prod
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 60  # backstop only: the working steps time out first
     env:
       APP_ENV: prod
       MOTHERDUCK_TOKEN: ${{ secrets.MOTHERDUCK_TOKEN }}
@@ -90,8 +90,14 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen
 
+      # The two steps that do the work carry their own timeout, below the
+      # job's. A step that times out fails, so the run is red and GitHub sends
+      # its email; a job that times out is only "cancelled", which is reported
+      # nowhere (checked on a throwaway workflow, ADR-007). A healthy daily
+      # run takes 7 to 23 minutes; a backfill slice is sized to fit 55.
       - name: Daily refresh
         if: (inputs.mode || 'daily') == 'daily'
+        timeout-minutes: 45
         env:
           EVENT: ${{ github.event_name }}
         # A manual run always refreshes; only the scheduled attempts may skip.
@@ -104,6 +110,7 @@ jobs:
 
       - name: Backfill
         if: inputs.mode == 'backfill'
+        timeout-minutes: 55
         env:
           START: ${{ inputs.start }}
           END: ${{ inputs.end }}
@@ -118,3 +125,28 @@ jobs:
           else
             uv run python -m power_market_lens.flows.backfill --start "$START" --end "$END"
           fi
+
+  # Any ending but success opens an incident issue (or comments on the open
+  # one): a failure, a timeout, or a cancellation, which GitHub itself never
+  # reports. `always()` is what lets this job start after a cancelled one.
+  # A run on another ref is skipped above and is not an incident.
+  alert:
+    name: Report a run that did not succeed
+    needs: run
+    if: ${{ always() && needs.run.result != 'success' && needs.run.result != 'skipped' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Open or update the incident issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ needs.run.result }}
+          MODE: ${{ inputs.mode || 'daily' }}
+        run: |
+          bash .github/scripts/report_incident.sh \
+            "The Pipeline run ($MODE) ended **$RESULT**. power_prod may not have been refreshed."
