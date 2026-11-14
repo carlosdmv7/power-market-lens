@@ -14,6 +14,10 @@ wrapper adds what a backfill needs on top:
   connection is retried here with exponential backoff.
   entsoe-py does not retry read timeouts, and a Prefect task retry would
   re-download every chunk of the window, not just the one that failed.
+- **A rejected token is not a transient failure.** A 401 or 403 means ENTSO-E
+  refused the security token (expired, revoked or mistyped). No retry can fix
+  that, so it is raised as `EntsoeAuthError`, which the flows use to stop the
+  whole run at the first load instead of failing sixty loads one by one.
 - **The token never reaches a log.** entsoe-py's HTTP and connection errors
   quote the request URL, security token included. Every error that leaves
   this module, and every retry warning, has it redacted first.
@@ -52,6 +56,14 @@ log = logging.getLogger(__name__)
 _SECURITY_TOKEN = re.compile(r"(securityToken=)[^&\s'\"]+")
 
 
+class EntsoeAuthError(requests.HTTPError):
+    """ENTSO-E refused the security token (HTTP 401 or 403).
+
+    Every other request of the run would be refused too, so nothing retries
+    this: not `with_backoff`, not the Prefect task, not the next load.
+    """
+
+
 def redact(text: str) -> str:
     """Hide the ENTSO-E security token in a URL or a message quoting one."""
     return _SECURITY_TOKEN.sub(r"\1***", text)
@@ -88,6 +100,14 @@ def with_backoff[T](
         try:
             return call()
         except (requests.HTTPError, requests.Timeout, requests.ConnectionError) as error:
+            if _status(error) in AUTH_FAILURE_STATUSES:
+                raise EntsoeAuthError(
+                    f"ENTSO-E rejected the security token (HTTP {_status(error)}). "
+                    "Check that ENTSOE_API_KEY is still valid; a new token is issued "
+                    "from the account settings of the Transparency Platform. "
+                    f"Original error: {redact(str(error))}",
+                    response=error.response,
+                ) from None
             if not _is_transient(error) or attempt == attempts:
                 # `from None`: the original, with the token in its message,
                 # would otherwise be printed as the context of this one.
@@ -103,9 +123,18 @@ def with_backoff[T](
     raise AssertionError("unreachable")  # the loop either returns or raises
 
 
+AUTH_FAILURE_STATUSES = (401, 403)
+
+
+def _status(error: requests.RequestException) -> int | None:
+    """The HTTP status of an error, or None when no response came back."""
+    response = getattr(error, "response", None)
+    return response.status_code if response is not None else None
+
+
 def _is_transient(error: requests.RequestException) -> bool:
     if isinstance(error, requests.HTTPError):
-        status = error.response.status_code if error.response is not None else 0
+        status = _status(error) or 0
         return status == 429 or status >= 500
     return True  # a timeout or a dropped connection
 

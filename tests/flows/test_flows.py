@@ -12,7 +12,7 @@ import requests
 from power_market_lens.flows import daily, tasks
 from power_market_lens.flows.backfill import backfill
 from power_market_lens.flows.daily import daily_refresh
-from power_market_lens.ingest.entsoe_client import EntsoeClient
+from power_market_lens.ingest.entsoe_client import EntsoeAuthError, EntsoeClient
 
 FIXTURES = Path(__file__).parents[1] / "ingest" / "fixtures" / "entsoe"
 
@@ -105,7 +105,7 @@ def test_a_failed_load_does_not_stop_the_others(wired, monkeypatch):
     class _GenerationRefused(_ReplayRawClient):
         def query_generation(self, *_, **__):
             response = requests.Response()
-            response.status_code = 401  # not retryable: fails at once
+            response.status_code = 400  # not retryable: fails at once
             raise requests.HTTPError(response=response)
 
     monkeypatch.setattr(
@@ -126,6 +126,32 @@ def test_a_failed_load_does_not_stop_the_others(wired, monkeypatch):
     )
     assert prices == 100  # the other entity still loaded
     assert ["build", "--target", "dev"] in dbt_calls  # and dbt was built on it
+
+
+def test_a_rejected_token_stops_the_run_at_the_first_load(wired, monkeypatch):
+    _, dbt_calls = wired
+    requests_made = []
+
+    class _TokenRejected(_ReplayRawClient):
+        def query_day_ahead_prices(self, *_, **__):
+            requests_made.append("prices")
+            response = requests.Response()
+            response.status_code = 401
+            raise requests.HTTPError(response=response)
+
+    monkeypatch.setattr(
+        tasks,
+        "make_client",
+        lambda _: EntsoeClient(_TokenRejected(), chunk_days=400, sleep=lambda _: None),
+    )
+
+    # The task keeps its two 60-second retries: were the error retried, this
+    # test would take minutes instead of failing fast.
+    with pytest.raises(EntsoeAuthError, match="rejected the security token"):
+        daily_refresh(zones=["ES", "PT"], trailing_days=1)
+
+    assert requests_made == ["prices"]  # no retry, no second entity, no second zone
+    assert dbt_calls == []  # nothing new arrived, so nothing is rebuilt
 
 
 def test_a_failed_dbt_build_fails_the_flow(wired, monkeypatch):

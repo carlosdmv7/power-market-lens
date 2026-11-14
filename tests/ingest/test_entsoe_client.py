@@ -7,6 +7,7 @@ import requests
 
 from power_market_lens.config import Settings
 from power_market_lens.ingest.entsoe_client import (
+    EntsoeAuthError,
     EntsoeClient,
     date_chunks,
     redact,
@@ -103,9 +104,20 @@ class TestBackoff:
         delays = []
 
         def call():
-            raise http_error(401)
+            raise http_error(400)
 
         with pytest.raises(requests.HTTPError):
+            with_backoff(call, sleep=delays.append)
+        assert delays == []
+
+    @pytest.mark.parametrize("status", [401, 403])
+    def test_a_rejected_token_is_an_auth_error_and_is_not_retried(self, status):
+        delays = []
+
+        def call():
+            raise http_error(status)
+
+        with pytest.raises(EntsoeAuthError, match=f"rejected the security token.*{status}"):
             with_backoff(call, sleep=delays.append)
         assert delays == []
 
