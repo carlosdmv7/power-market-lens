@@ -80,6 +80,10 @@ backfill: ## Backfill a date range: make backfill START=2026-07-19 END=2026-10-1
 	@test -n "$(START)" -a -n "$(END)" || (echo "usage: make backfill START=YYYY-MM-DD END=YYYY-MM-DD" && exit 1)
 	uv run $(ENV_FILE) python -m power_market_lens.flows.backfill --start $(START) --end $(END)
 
+.PHONY: freshness
+freshness: ## Is the APP_ENV database fresh? Read-only; what the Data freshness workflow runs
+	uv run $(ENV_FILE) python -m power_market_lens.freshness
+
 # ── dbt ────────────────────────────────────────────────────────────────────────
 # Pick the target with TARGET=dev|ci|prod. Prod is written only by the
 # main-branch pipeline; running `make dbt-build TARGET=prod` locally breaks

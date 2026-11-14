@@ -11,7 +11,6 @@ import os
 from pathlib import Path
 import subprocess  # noqa: S404 - runs this environment's own dbt CLI
 import sys
-from zoneinfo import ZoneInfo
 
 import duckdb
 from prefect import task
@@ -28,9 +27,8 @@ from power_market_lens.ingest.jobs import (
     load_total_load_forecast,
 )
 from power_market_lens.ingest.warehouse import connect, ensure_raw_tables
-from power_market_lens.zones import get_zone
+from power_market_lens.zones import SDAC_TIMEZONE, get_zone
 
-SDAC_TIMEZONE = ZoneInfo("Europe/Brussels")  # = dbt var sdac_market_timezone
 DBT_PROJECT_DIR = Path(__file__).resolve().parents[3] / "transform"
 
 JOBS: dict[str, Callable[..., int]] = {
