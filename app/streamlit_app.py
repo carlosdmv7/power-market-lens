@@ -9,6 +9,7 @@ the portfolio design system through two native mechanisms only:
 """
 
 import importlib
+import logging
 from pathlib import Path
 
 import hot_reload
@@ -20,7 +21,10 @@ import hot_reload
 importlib.reload(hot_reload)
 hot_reload.drop_stale(Path(__file__).parent)
 
+import duckdb  # noqa: E402
 import streamlit as st  # noqa: E402
+
+log = logging.getLogger("power_market_lens.app")
 
 VIEWS = Path(__file__).parent / "views"
 
@@ -37,4 +41,17 @@ page = st.navigation(
     ],
     position="top",
 )
-page.run()
+try:
+    page.run()
+except (duckdb.Error, RuntimeError):
+    # The warehouse cannot be reached or queried: MotherDuck is down, the
+    # token is missing or no longer valid, a mart is not there. A visitor can
+    # do nothing with a traceback, and it would show internals on a public
+    # page; the detail goes to the server log instead. `st.stop()` and reruns
+    # are not caught: they raise Streamlit's own control-flow exceptions.
+    log.exception("The page could not read the warehouse")
+    st.error(
+        "The data is temporarily unavailable. This is a problem on our side, not yours: "
+        "please try again in a few minutes.",
+        icon=":material/cloud_off:",
+    )
