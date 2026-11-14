@@ -167,3 +167,20 @@ def test_map_page_on_an_empty_warehouse_explains_itself(run_page):
 
     assert not at.exception
     assert "No data in the warehouse yet" in at.info[0].value
+
+
+def test_an_unreachable_warehouse_shows_a_message_not_a_traceback(tmp_path, monkeypatch):
+    # A path that does not exist: opening it read-only fails like a warehouse
+    # that is down or a token that is no longer accepted.
+    monkeypatch.setenv("WAREHOUSE_PATH", str(tmp_path / "missing" / "warehouse.duckdb"))
+    st.cache_resource.clear()
+    st.cache_data.clear()
+
+    at = AppTest.from_file(str(APP), default_timeout=30).run()
+
+    assert not at.exception
+    assert [e.value for e in at.error] == [
+        "The data is temporarily unavailable. This is a problem on our side, not yours: "
+        "please try again in a few minutes."
+    ]
+    st.cache_resource.clear()
