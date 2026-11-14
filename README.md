@@ -143,6 +143,8 @@ run: every run retried until its job timeout, and GitHub reports a timed-out job
   zone has prices for today. It does not depend on the pipeline having run, and its badge
   is at the top of this page.
 
+What to do when any of these fire is in the [runbook](docs/runbook.md).
+
 ## Quickstart
 
 ```bash
