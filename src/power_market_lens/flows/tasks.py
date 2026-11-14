@@ -19,7 +19,7 @@ from prefect.runtime import flow_run
 
 from power_market_lens.config import Settings, load_settings
 from power_market_lens.flows.windows import RunWindows, Window
-from power_market_lens.ingest.entsoe_client import EntsoeClient
+from power_market_lens.ingest.entsoe_client import EntsoeAuthError, EntsoeClient
 from power_market_lens.ingest.jobs import (
     load_crossborder_flows,
     load_day_ahead_prices,
@@ -66,7 +66,17 @@ def current_run_id() -> str:
     return str(flow_run.id) if flow_run.id else "manual"
 
 
-@task(retries=2, retry_delay_seconds=60, task_run_name="load {entity} {zone_code}")
+def _worth_retrying(task, task_run, state) -> bool:  # noqa: ARG001 - Prefect's signature
+    """Prefect asks this before each task retry. A rejected token stays rejected."""
+    return not isinstance(state.result(raise_on_failure=False), EntsoeAuthError)
+
+
+@task(
+    retries=2,
+    retry_delay_seconds=60,
+    retry_condition_fn=_worth_retrying,
+    task_run_name="load {entity} {zone_code}",
+)
 def load_entity(entity: str, zone_code: str, window: Window) -> int:
     """Fetch one entity for one zone and window from ENTSO-E; append it to raw."""
     settings = load_settings()
@@ -85,6 +95,12 @@ def load_zones(zone_codes: list[str], windows: RunWindows) -> tuple[dict[str, in
     the publisher is late on must not leave every other zone stale. The caller
     builds dbt on what did arrive, then fails the run with `raise_for_failed`.
     Returns the row count per "zone/entity" that loaded, and those that failed.
+
+    The one exception is a rejected token (`EntsoeAuthError`): every remaining
+    load would be refused as well, so it is raised at once and the run ends
+    red within seconds. From 2026-11-06 to 2026-11-14 an expired token was
+    instead retried load by load until the job timeout cancelled each run,
+    which GitHub does not report as a failure.
     """
     counts: dict[str, int] = {}
     failed: list[str] = []
@@ -95,8 +111,11 @@ def load_zones(zone_codes: list[str], windows: RunWindows) -> tuple[dict[str, in
             key = f"{zone_code}/{entity}"
             if state.is_completed():
                 counts[key] = state.result()
-            else:
-                failed.append(key)
+                continue
+            error = state.result(raise_on_failure=False)
+            if isinstance(error, EntsoeAuthError):
+                raise error
+            failed.append(key)
     return counts, failed
 
 
