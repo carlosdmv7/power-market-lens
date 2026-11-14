@@ -55,6 +55,14 @@ with header:
         ],
     )
 
+if stale:
+    # Amber in the header is easy to miss; the charts look the same either way.
+    st.warning(
+        f"This data is out of date: the last load was on {loaded_at:%d %b %Y at %H:%M} UTC. "
+        "It is normally refreshed every day after the day-ahead auction.",
+        icon=":material/schedule:",
+    )
+
 if prices.empty:
     st.info("No prices for this day.")
     st.stop()

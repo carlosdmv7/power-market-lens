@@ -184,3 +184,14 @@ def test_an_unreachable_warehouse_shows_a_message_not_a_traceback(tmp_path, monk
         "please try again in a few minutes."
     ]
     st.cache_resource.clear()
+
+
+@pytest.mark.parametrize("page", [None, "views/map.py"])
+def test_stale_data_is_announced_above_the_charts(run_page, page):
+    # The fixture's last load is 17 October 2026: long past the 36-hour limit.
+    at = run_page(with_data=True, page=page)
+
+    assert not at.exception
+    assert any(
+        "out of date: the last load was on 17 Oct 2026 at 13:30 UTC" in w.value for w in at.warning
+    )

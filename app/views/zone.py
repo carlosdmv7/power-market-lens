@@ -79,6 +79,14 @@ with header:
         ],
     )
 
+if stale:
+    # Amber in the header is easy to miss; the charts look the same either way.
+    st.warning(
+        f"This data is out of date: the last load was on {loaded_at:%d %b %Y at %H:%M} UTC. "
+        "It is normally refreshed every day after the day-ahead auction.",
+        icon=":material/schedule:",
+    )
+
 default_start = max(first_day, last_day - timedelta(days=DEFAULT_DAYS - 1))
 picked = dates_column.date_input(
     "Delivery dates",
