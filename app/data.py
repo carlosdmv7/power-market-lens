@@ -23,20 +23,26 @@ CACHE_TTL_S = 600  # the pipeline runs daily; ten minutes of staleness is harmle
 @st.cache_resource
 def connection() -> duckdb.DuckDBPyConnection:
     path = os.getenv("WAREHOUSE_PATH", DEFAULT_WAREHOUSE)
-    config = {}
+    # Same rule as the dbt profiles: never let the server's zone leak in. It
+    # is set in the connection's config, not with a SET statement: a SET is
+    # local to one connection, and the cursors `_query` opens would not see it.
+    config = {"TimeZone": "UTC"}
     if path.startswith("md:"):
         token = os.getenv("MOTHERDUCK_TOKEN")
         if not token:
             raise RuntimeError("MOTHERDUCK_TOKEN is not set")
         config["motherduck_token"] = token
-    con = duckdb.connect(path, read_only=not path.startswith("md:"), config=config)
-    # Same rule as the dbt profiles: never let the server's zone leak in.
-    con.execute("set TimeZone = 'UTC'")
-    return con
+    return duckdb.connect(path, read_only=not path.startswith("md:"), config=config)
 
 
 def _query(sql: str, params: list | None = None) -> pd.DataFrame:
-    return connection().execute(sql, params or []).df()
+    # A cursor per query. The connection is cached once for the whole process,
+    # and Streamlit runs each visitor's session in its own thread. A DuckDB
+    # connection must not be used from two threads at once; a cursor is its
+    # own connection to the same database, which is DuckDB's documented way
+    # to share one database between threads.
+    with connection().cursor() as cursor:
+        return cursor.execute(sql, params or []).df()
 
 
 @st.cache_data(ttl=CACHE_TTL_S)
