@@ -35,3 +35,4 @@ Thumbs.db
 # ── dbt ───────────────────────────────────────────────────────────────────────
 transform/target/
 transform/dbt_packages/
+transform/.user.yml   # dbt's anonymous usage id, one per machine
