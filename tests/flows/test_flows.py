@@ -2,6 +2,7 @@
 replaced by recorded fixtures, MotherDuck by a DuckDB file and dbt by a stub."""
 
 from datetime import date
+import json
 from pathlib import Path
 
 import duckdb
@@ -15,6 +16,7 @@ from power_market_lens.flows.daily import daily_refresh
 from power_market_lens.ingest.entsoe_client import EntsoeAuthError, EntsoeClient
 
 FIXTURES = Path(__file__).parents[1] / "ingest" / "fixtures" / "entsoe"
+EUROSTAT = Path(__file__).parents[1] / "ingest" / "fixtures" / "eurostat"
 
 
 class _ReplayRawClient:
@@ -54,6 +56,13 @@ def wired(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(tasks, "make_connection", lambda _: duckdb.connect(database))
     monkeypatch.setattr(tasks, "run_dbt", lambda args: dbt_calls.append(args) or True)
+    monkeypatch.setattr(
+        tasks,
+        "make_eurostat_fetch",
+        lambda: (
+            lambda dataset: json.loads((EUROSTAT / f"recorded_{dataset.code}.json").read_text())
+        ),
+    )
     return database, dbt_calls
 
 
@@ -68,6 +77,8 @@ def test_daily_refresh_loads_both_entities_then_builds_dbt(wired):
         "ES/total_load_actual": 92,
         "ES/total_load_forecast": 92,
         "ES/crossborder_flows": 4 * 92,  # ES-PT and ES-FR, both directions
+        "eurostat/nrg_pc_204": 3706,
+        "eurostat/nrg_pc_204_c": 3481,
     }
     assert dbt_calls == [
         ["deps"],
@@ -272,4 +283,42 @@ def test_a_failed_check_never_skips_the_refresh(wired, monkeypatch):
     counts = daily_refresh(zones=["ES"], trailing_days=1, skip_if_done=True)
 
     assert counts["ES/day_ahead_prices"] == 100
+    assert ["build", "--target", "dev"] in dbt_calls
+
+
+def test_eurostat_is_appended_once_per_published_version(wired):
+    database, _ = wired
+
+    daily_refresh(zones=["ES"], trailing_days=1)
+    counts = daily_refresh(zones=["ES"], trailing_days=1)
+
+    assert counts["eurostat/nrg_pc_204"] == 0  # same version: nothing appended
+    rows = (
+        duckdb.connect(database)
+        .execute("select count(*) from raw.eurostat_household_prices")
+        .fetchone()[0]
+    )
+    assert rows == 3706
+
+
+def test_a_failed_eurostat_load_does_not_stop_the_market_data(wired, monkeypatch):
+    database, dbt_calls = wired
+
+    def down(_dataset):
+        raise requests.ConnectionError("Eurostat unreachable")
+
+    monkeypatch.setattr(tasks, "make_eurostat_fetch", lambda: down)
+    monkeypatch.setattr(
+        tasks, "load_eurostat_dataset", tasks.load_eurostat_dataset.with_options(retries=0)
+    )
+
+    with pytest.raises(RuntimeError, match=r"2 load\(s\) failed.*eurostat/nrg_pc_204"):
+        daily_refresh(zones=["ES"], trailing_days=1)
+
+    prices = (
+        duckdb.connect(database)
+        .execute("select count(*) from raw.entsoe_day_ahead_prices")
+        .fetchone()[0]
+    )
+    assert prices == 100
     assert ["build", "--target", "dev"] in dbt_calls

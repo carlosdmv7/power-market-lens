@@ -75,3 +75,36 @@ class CrossBorderFlowRow(_Row):
     flow_mw: float
     document_mrid: str
     document_created_at: AwareDatetime
+
+
+class HouseholdPriceRow(_Row):
+    """One Eurostat household electricity price (dataset nrg_pc_204), as published.
+
+    Half-yearly, per country, consumption band and tax treatment.
+    """
+
+    geo: str  # Eurostat country code, e.g. ES, DE
+    time_period: str  # half-year as Eurostat writes it, e.g. 2025-S2
+    nrg_cons: str  # consumption band, e.g. KWH2500-4999 (band DC)
+    tax: Literal["X_TAX", "X_VAT", "I_TAX"]  # excluding taxes, excluding VAT, all included
+    currency: Literal["EUR"]
+    price_eur_kwh: float
+    status_flag: str | None  # Eurostat flag: p provisional, d definition differs, ...
+    source_updated_at: AwareDatetime  # when Eurostat last updated the dataset
+
+
+class HouseholdPriceComponentRow(_Row):
+    """One Eurostat household price component (dataset nrg_pc_204_c), as published.
+
+    Yearly, per country, consumption band and component (energy and supply,
+    network costs, taxes and levies, VAT, and their sub-items and allowances).
+    """
+
+    geo: str
+    time_period: str  # year, e.g. 2025
+    nrg_cons: str
+    nrg_prc: str  # price component, e.g. NRG_SUP, NETC, TAX_FEE_LEV_CHRG, VAT
+    currency: Literal["EUR"]
+    component_eur_kwh: float
+    status_flag: str | None
+    source_updated_at: AwareDatetime

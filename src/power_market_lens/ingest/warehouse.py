@@ -22,6 +22,8 @@ from power_market_lens.ingest.models import (
     CrossBorderFlowRow,
     DayAheadPriceRow,
     GenerationRow,
+    HouseholdPriceComponentRow,
+    HouseholdPriceRow,
     TotalLoadRow,
 )
 
@@ -88,6 +90,34 @@ RAW_TABLES: dict[str, tuple[type[BaseModel], str]] = {
         flow_mw double not null,
         document_mrid varchar not null,
         document_created_at timestamptz not null,
+        """,
+    ),
+    # Eurostat publishes these twice a year (prices) or once (components); a
+    # load appends only when the dataset's update time has moved (ADR-010).
+    "eurostat_household_prices": (
+        HouseholdPriceRow,
+        """
+        geo varchar not null,
+        time_period varchar not null,
+        nrg_cons varchar not null,
+        tax varchar not null,
+        currency varchar not null,
+        price_eur_kwh double not null,
+        status_flag varchar,
+        source_updated_at timestamptz not null,
+        """,
+    ),
+    "eurostat_household_price_components": (
+        HouseholdPriceComponentRow,
+        """
+        geo varchar not null,
+        time_period varchar not null,
+        nrg_cons varchar not null,
+        nrg_prc varchar not null,
+        currency varchar not null,
+        component_eur_kwh double not null,
+        status_flag varchar,
+        source_updated_at timestamptz not null,
         """,
     ),
 }
