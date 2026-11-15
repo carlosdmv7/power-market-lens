@@ -13,7 +13,7 @@ import subprocess  # noqa: S404 - runs this environment's own dbt CLI
 import sys
 
 import duckdb
-from prefect import task
+from prefect import get_run_logger, task
 from prefect.runtime import flow_run
 
 from power_market_lens.config import Settings, load_settings
@@ -86,6 +86,14 @@ def load_entity(entity: str, zone_code: str, window: Window) -> int:
         )
 
 
+# Consecutive failed loads after which the rest of the run is skipped. One
+# failed load is usually one zone the publisher is late on; several in a row,
+# across entities, mean ENTSO-E itself is down. Each failed load costs minutes
+# of backoff and task retries, so without a stop a full outage spends the whole
+# job timeout on loads that cannot succeed.
+MAX_CONSECUTIVE_FAILURES = 4
+
+
 def load_zones(zone_codes: list[str], windows: RunWindows) -> tuple[dict[str, int], list[str]]:
     """Run every (zone, entity) load, whatever happens to the others.
 
@@ -99,21 +107,37 @@ def load_zones(zone_codes: list[str], windows: RunWindows) -> tuple[dict[str, in
     red within seconds. From 2026-11-06 to 2026-11-14 an expired token was
     instead retried load by load until the job timeout cancelled each run,
     which GitHub does not report as a failure.
+
+    After MAX_CONSECUTIVE_FAILURES failed loads in a row the remaining loads
+    are not attempted; they are returned as failed, marked "(skipped)".
     """
     counts: dict[str, int] = {}
     failed: list[str] = []
-    for zone_code in zone_codes:
-        for entity in JOBS:
-            window = getattr(windows, WINDOW_OF[entity])
-            state = load_entity(entity, zone_code, window, return_state=True)
-            key = f"{zone_code}/{entity}"
-            if state.is_completed():
-                counts[key] = state.result()
-                continue
-            error = state.result(raise_on_failure=False)
-            if isinstance(error, EntsoeAuthError):
-                raise error
-            failed.append(key)
+    keys = [(zone_code, entity) for zone_code in zone_codes for entity in JOBS]
+    consecutive = 0
+    for position, (zone_code, entity) in enumerate(keys):
+        window = getattr(windows, WINDOW_OF[entity])
+        state = load_entity(entity, zone_code, window, return_state=True)
+        key = f"{zone_code}/{entity}"
+        if state.is_completed():
+            counts[key] = state.result()
+            consecutive = 0
+            continue
+        error = state.result(raise_on_failure=False)
+        if isinstance(error, EntsoeAuthError):
+            raise error
+        failed.append(key)
+        consecutive += 1
+        if consecutive >= MAX_CONSECUTIVE_FAILURES:
+            skipped = [f"{z}/{e} (skipped)" for z, e in keys[position + 1 :]]
+            get_run_logger().error(
+                "%d loads failed in a row: ENTSO-E looks unavailable. Skipping the "
+                "remaining %d loads; dbt is built on what arrived.",
+                consecutive,
+                len(skipped),
+            )
+            failed.extend(skipped)
+            break
     return counts, failed
 
 
@@ -142,11 +166,17 @@ def tomorrows_prices_built(zone_codes: list[str], now: datetime) -> bool:
 
 
 def raise_for_failed(failed: list[str]) -> None:
-    if failed:
-        raise RuntimeError(
-            f"{len(failed)} load(s) failed after their retries: {', '.join(failed)}. "
-            "Every other load ran and dbt was built on it."
+    if not failed:
+        return
+    skipped = [key for key in failed if key.endswith("(skipped)")]
+    attempted = [key for key in failed if key not in skipped]
+    message = f"{len(attempted)} load(s) failed after their retries: {', '.join(attempted)}."
+    if skipped:
+        message += (
+            f" After {MAX_CONSECUTIVE_FAILURES} failures in a row ENTSO-E looked unavailable, "
+            f"so {len(skipped)} load(s) were not attempted."
         )
+    raise RuntimeError(message + " dbt was built on the loads that succeeded.")
 
 
 def run_dbt(args: list[str]) -> bool:
