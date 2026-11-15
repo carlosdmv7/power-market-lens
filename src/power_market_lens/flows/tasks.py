@@ -18,6 +18,7 @@ from prefect.runtime import flow_run
 
 from power_market_lens.config import Settings, load_settings
 from power_market_lens.flows.windows import RunWindows, Window
+from power_market_lens.ingest import eurostat
 from power_market_lens.ingest.entsoe_client import EntsoeAuthError, EntsoeClient
 from power_market_lens.ingest.jobs import (
     load_crossborder_flows,
@@ -58,6 +59,10 @@ def make_client(settings: Settings) -> EntsoeClient:
 
 def make_connection(settings: Settings) -> duckdb.DuckDBPyConnection:
     return connect(settings)
+
+
+def make_eurostat_fetch() -> eurostat.Fetch:
+    return eurostat.fetch_dataset
 
 
 def current_run_id() -> str:
@@ -138,6 +143,32 @@ def load_zones(zone_codes: list[str], windows: RunWindows) -> tuple[dict[str, in
             )
             failed.extend(skipped)
             break
+    return counts, failed
+
+
+@task(retries=2, retry_delay_seconds=60, task_run_name="load eurostat {code}")
+def load_eurostat_dataset(code: str) -> int:
+    """Append one Eurostat dataset to raw when Eurostat has updated it (ADR-010)."""
+    settings = load_settings()
+    with make_connection(settings) as con:
+        ensure_raw_tables(con)
+        return eurostat.load_dataset(
+            con, code, fetch=make_eurostat_fetch(), run_id=current_run_id()
+        )
+
+
+def load_household_prices() -> tuple[dict[str, int], list[str]]:
+    """Every Eurostat dataset, with the same rule as the ENTSO-E loads: a
+    failure is recorded, not raised, so it never holds back the market data."""
+    counts: dict[str, int] = {}
+    failed: list[str] = []
+    for code in eurostat.DATASETS:
+        state = load_eurostat_dataset(code, return_state=True)
+        key = f"eurostat/{code}"
+        if state.is_completed():
+            counts[key] = state.result()
+        else:
+            failed.append(key)
     return counts, failed
 
 
