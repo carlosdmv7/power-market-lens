@@ -58,3 +58,24 @@ Prefect owns the **flow logic and observability**; GitHub Actions owns
   record. Orchestration is not a single point of failure.
 - Prod is written only by this workflow on `main`. The workflow refuses to run
   on any other ref.
+
+## Amendment, 2026-11-15: what running it taught
+
+- **The schedule runs hours late, not minutes.** In the two weeks before
+  2026-11-06 the first attempt asked for 12:37 UTC started between 17:20
+  and 20:14 UTC, and a second full refresh usually ran around 01:00 UTC.
+  Tomorrow's prices therefore reach the app in the evening. Still acceptable
+  for an app that explains prices rather than trades on them; an external
+  trigger would fix it at the cost of a new service and a token stored
+  outside GitHub (review, proposal 7.3).
+- **Prefect Cloud reporting is on in prod** since 2026-11-15, when
+  `PREFECT_API_KEY` and `PREFECT_API_URL` were added as repository secrets.
+  Before that every prod run used a temporary local server and was only in
+  the job log. Still zero deployments.
+- **A run that does not finish is not reported by GitHub.** A job timeout
+  ends "cancelled", which is neither red nor emailed. That, and the alerts
+  added for it, are in ADR-007.
+- **GitHub disables scheduled workflows after 60 days without repository
+  activity.** The pipeline and the freshness check would stop together. The
+  app's "Last loaded" notice is the remaining signal; the runbook says how
+  to re-enable the schedule.

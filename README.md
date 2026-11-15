@@ -152,6 +152,24 @@ run: every run retried until its job timeout, and GitHub reports a timed-out job
 
 What to do when any of these fire is in the [runbook](docs/runbook.md).
 
+### Cost and limits
+
+Everything runs on free tiers. Measured on 2026-11-15:
+
+| Service | Free allowance | This project |
+|---|---|---|
+| MotherDuck | 10 GB storage, 10 hours of compute a month, per account | `power_prod` 560 MiB, `power_dev` 24 MiB. Compute is shared with my other projects, and the free plan does not break it down per database. |
+| GitHub Actions | Unmetered standard runners for public repositories | About two full Pipeline runs a day of 7 to 23 minutes, two freshness checks, CI per pull request |
+| Prefect Cloud | Free tier, a small deployment quota shared across projects | Run history only; zero deployments (ADR-002) |
+| Streamlit Community Cloud | Public apps; an idle app goes to sleep | The app wakes on the first visit, which takes a few seconds |
+
+What grows is raw. Every run re-pulls the last seven days, so a normal day
+appends about 345,000 rows across the four raw tables, most of them copies of
+points already stored. At that rate storage stays far below the 10 GB for
+years, but staging re-ranks the whole of raw on every build, so build time
+and compute grow with it. Appending only rows that changed is the planned
+fix ([review](docs/review-2026-11.md), proposal 7.1).
+
 ## Quickstart
 
 ```bash
