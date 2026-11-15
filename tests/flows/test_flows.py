@@ -154,6 +154,61 @@ def test_a_rejected_token_stops_the_run_at_the_first_load(wired, monkeypatch):
     assert dbt_calls == []  # nothing new arrived, so nothing is rebuilt
 
 
+def test_an_entsoe_outage_stops_after_consecutive_failures(wired, monkeypatch):
+    _, dbt_calls = wired
+    queried = []
+
+    class _Down(_ReplayRawClient):
+        def __getattribute__(self, name):
+            if name.startswith("query_"):
+
+                def refuse(*_, **__):
+                    queried.append(name)
+                    response = requests.Response()
+                    response.status_code = 503
+                    raise requests.HTTPError(response=response)
+
+                return refuse
+            return super().__getattribute__(name)
+
+    monkeypatch.setattr(
+        tasks,
+        "make_client",
+        lambda _: EntsoeClient(_Down(), chunk_days=400, sleep=lambda _: None),
+    )
+    monkeypatch.setattr(tasks, "load_entity", tasks.load_entity.with_options(retries=0))
+
+    with pytest.raises(RuntimeError, match=r"4 load\(s\) failed.*6 load\(s\) were not attempted"):
+        daily_refresh(zones=["ES", "PT"], trailing_days=1)
+
+    # Four loads, each tried four times by the client's backoff; PT never asked.
+    assert len(queried) == 4 * 4
+    assert "query_crossborder_flows" not in queried
+    assert ["build", "--target", "dev"] in dbt_calls  # dbt still built on what arrived
+
+
+def test_one_failed_load_resets_after_a_success(wired, monkeypatch):
+    class _GenerationDown(_ReplayRawClient):
+        def query_generation(self, *_, **__):
+            response = requests.Response()
+            response.status_code = 503
+            raise requests.HTTPError(response=response)
+
+    monkeypatch.setattr(
+        tasks,
+        "make_client",
+        lambda _: EntsoeClient(_GenerationDown(), chunk_days=400, sleep=lambda _: None),
+    )
+    monkeypatch.setattr(tasks, "load_entity", tasks.load_entity.with_options(retries=0))
+
+    # Generation fails in all three zones, but never four loads in a row.
+    with pytest.raises(RuntimeError) as raised:
+        daily_refresh(zones=["ES", "PT", "FR"], trailing_days=1)
+
+    assert str(raised.value).startswith("3 load(s) failed")
+    assert "not attempted" not in str(raised.value)
+
+
 def test_a_failed_dbt_build_fails_the_flow(wired, monkeypatch):
     monkeypatch.setattr(tasks, "run_dbt", lambda args: args == ["deps"])
 
