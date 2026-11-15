@@ -1,0 +1,16 @@
+nrg_prc,component_label,component_group,is_top_level,is_allowance
+NRG_SUP,Energy and supply,energy_and_supply,true,false
+NETC,Network costs,network,true,false
+TAX_FEE_LEV_CHRG,"Taxes, fees, levies and charges",taxes_and_levies,true,false
+VAT,Value added tax,vat,true,false
+TAX_RNW,Renewable taxes,taxes_and_levies,false,false
+TAX_CAP,Capacity taxes,taxes_and_levies,false,false
+TAX_ENV,Environmental taxes,taxes_and_levies,false,false
+TAX_NUC,Nuclear taxes,taxes_and_levies,false,false
+OTH,Other taxes and levies,taxes_and_levies,false,false
+TAX_FEE_LEV_CHRG_ALLOW,"Taxes, fees, levies and charges allowance",taxes_and_levies,false,true
+TAX_RNW_ALLOW,Renewable taxes allowance,taxes_and_levies,false,true
+TAX_CAP_ALLOW,Capacity taxes allowance,taxes_and_levies,false,true
+TAX_ENV_ALLOW,Environmental taxes allowance,taxes_and_levies,false,true
+TAX_NUC_ALLOW,Nuclear taxes allowance,taxes_and_levies,false,true
+ALLOW_OTH,Other allowance,taxes_and_levies,false,true

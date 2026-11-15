@@ -1,0 +1,110 @@
+version: 2
+
+models:
+  - name: stg_eurostat__household_prices
+    description: >
+      Household electricity prices from the newest version Eurostat has
+      published (ADR-010). One row per country, half-year, consumption band and
+      tax treatment. Pre-2007 bands are kept here as published; marts drop them.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [country_code, period_code, nrg_cons, tax]
+    columns:
+      - name: country_code
+        description: Eurostat country code, e.g. ES.
+        data_tests:
+          - not_null
+      - name: period_code
+        description: Half-year as Eurostat writes it, e.g. 2025-S2.
+        data_tests:
+          - not_null
+      - name: period_start_date
+        description: First day of the half-year (1 January or 1 July).
+        data_tests:
+          - not_null
+      - name: nrg_cons
+        description: Eurostat consumption band code.
+        data_tests:
+          - not_null
+      - name: tax
+        description: X_TAX, X_VAT or I_TAX.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [X_TAX, X_VAT, I_TAX]
+      - name: currency
+        description: Always EUR.
+      - name: price_eur_kwh
+        description: Price per kWh in euros.
+        data_tests:
+          - not_null
+      - name: status_flag
+        description: Eurostat flag of the value, null when none.
+      - name: source_updated_at
+        description: The version this row comes from (Eurostat's update time), UTC.
+      - name: loaded_at
+        description: When the loader appended the version, UTC.
+
+  - name: stg_eurostat__household_price_components
+    description: >
+      Household electricity price components from the newest version Eurostat
+      has published. One row per country, year, consumption band and component.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [country_code, year, nrg_cons, nrg_prc]
+    columns:
+      - name: country_code
+        description: Eurostat country code, e.g. ES.
+        data_tests:
+          - not_null
+      - name: year
+        description: Calendar year of the components.
+        data_tests:
+          - not_null
+      - name: nrg_cons
+        description: Eurostat consumption band code.
+        data_tests:
+          - not_null
+      - name: nrg_prc
+        description: Price component code.
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('eurostat_price_components')
+                field: nrg_prc
+      - name: currency
+        description: Always EUR.
+      - name: component_eur_kwh
+        description: Component per kWh in euros.
+        data_tests:
+          - not_null
+      - name: status_flag
+        description: Eurostat flag of the value, null when none.
+      - name: source_updated_at
+        description: The version this row comes from (Eurostat's update time), UTC.
+      - name: loaded_at
+        description: When the loader appended the version, UTC.
+
+unit_tests:
+  - name: test_household_prices_keep_only_the_newest_version
+    description: >
+      Version 2 republishes the all-taxes price with a new value and drops the
+      price without taxes. Only version 2 survives: the new value, and no row
+      for the withdrawn one. Version 2 was loaded twice; one copy is kept.
+    model: stg_eurostat__household_prices
+    given:
+      - input: source('eurostat', 'household_prices')
+        rows:
+          - {geo: ES, time_period: 2024-S1, nrg_cons: KWH2500-4999, tax: I_TAX, currency: EUR, price_eur_kwh: 0.25, source_updated_at: "2026-04-20 21:00:00+00", _loaded_at: "2026-04-21 13:00:00+00"}
+          - {geo: ES, time_period: 2024-S1, nrg_cons: KWH2500-4999, tax: X_TAX, currency: EUR, price_eur_kwh: 0.125, source_updated_at: "2026-04-20 21:00:00+00", _loaded_at: "2026-04-21 13:00:00+00"}
+          - {geo: ES, time_period: 2024-S1, nrg_cons: KWH2500-4999, tax: I_TAX, currency: EUR, price_eur_kwh: 0.5, source_updated_at: "2026-10-19 21:00:00+00", _loaded_at: "2026-10-20 13:00:00+00"}
+          - {geo: ES, time_period: 2024-S1, nrg_cons: KWH2500-4999, tax: I_TAX, currency: EUR, price_eur_kwh: 0.5, source_updated_at: "2026-10-19 21:00:00+00", _loaded_at: "2026-10-21 13:00:00+00"}
+          - {geo: ES, time_period: 2024-S2, nrg_cons: KWH2500-4999, tax: I_TAX, currency: EUR, price_eur_kwh: 0.25, source_updated_at: "2026-10-19 21:00:00+00", _loaded_at: "2026-10-20 13:00:00+00"}
+    expect:
+      rows:
+        - {country_code: ES, period_code: 2024-S1, period_start_date: 2024-01-01, tax: I_TAX, price_eur_kwh: 0.5, loaded_at: "2026-10-21 13:00:00+00"}
+        - {country_code: ES, period_code: 2024-S2, period_start_date: 2024-07-01, tax: I_TAX, price_eur_kwh: 0.25, loaded_at: "2026-10-20 13:00:00+00"}

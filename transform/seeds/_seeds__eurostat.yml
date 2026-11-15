@@ -1,0 +1,77 @@
+version: 2
+
+seeds:
+  - name: eurostat_consumption_bands
+    description: >
+      Eurostat's household consumption bands, from the dataset code to the band
+      letter (DA to DE) and its range in kWh a year. Band DE has a different
+      code in each dataset (KWH_GE15000 for prices, KWH_LE15000 for
+      components). The pre-2007 bands (KWH600, KWH3500...) are left out on
+      purpose: Eurostat has them for 2007 only.
+    config:
+      column_types:
+        nrg_cons: varchar
+        band_code: varchar
+        band_label: varchar
+        min_kwh_per_year: integer
+        max_kwh_per_year: integer
+    columns:
+      - name: nrg_cons
+        description: Eurostat consumption band code, as in the datasets.
+        data_tests:
+          - unique
+          - not_null
+      - name: band_code
+        description: Band letter (DA to DE), or ALL for every band together.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [ALL, DA, DB, DC, DD, DE]
+      - name: band_label
+        description: Band range in words, for display.
+        data_tests:
+          - not_null
+      - name: min_kwh_per_year
+        description: Lower bound of the band, kWh a year (inclusive); null for ALL.
+      - name: max_kwh_per_year
+        description: Upper bound of the band, kWh a year (exclusive); null for ALL and DE.
+
+  - name: eurostat_price_components
+    description: >
+      Eurostat's household price components (nrg_prc). The four top-level ones
+      (energy and supply, network costs, taxes and levies, VAT) make up the
+      price; the rest are sub-items and allowances of the taxes, which in
+      Eurostat's data do not add up to the taxes total.
+    config:
+      column_types:
+        nrg_prc: varchar
+        component_label: varchar
+        component_group: varchar
+        is_top_level: boolean
+        is_allowance: boolean
+    columns:
+      - name: nrg_prc
+        description: Eurostat price component code.
+        data_tests:
+          - unique
+          - not_null
+      - name: component_label
+        description: Component name for display.
+        data_tests:
+          - not_null
+      - name: component_group
+        description: The top-level component it belongs to.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [energy_and_supply, network, taxes_and_levies, vat]
+      - name: is_top_level
+        description: True for the four components that make up the price.
+        data_tests:
+          - not_null
+      - name: is_allowance
+        description: True for an allowance (a reduction), published by Eurostat as a positive amount.
+        data_tests:
+          - not_null
