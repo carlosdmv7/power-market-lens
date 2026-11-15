@@ -8,6 +8,7 @@ Portfolio analytics platform explaining day-ahead electricity prices across Euro
 2. Drivers of day-ahead prices (load, wind/solar, cross-border flows, gas) as seen by the forecasting model (SHAP). Framed as model drivers, not causal proof.
 3. Household price composition across countries (energy, network, taxes/levies, VAT) from Eurostat, plus the daily Spanish PVPC breakdown from ESIOS. National policies appear only as chart annotations.
 4. A price map with cross-border flows, and a day-ahead price forecast for Spain with prediction intervals vs actuals.
+5. Which hours were statistically unusual for a zone's power system, and which variables made them so (PCA, Hotelling T² and Q; ADR-008). Never presented as a blackout probability or a security assessment.
 
 ## Non-goals for v1
 Intraday or real-time markets, modelling national subsidies, any AI assistant (see section 4 of the kickoff).
@@ -62,6 +63,7 @@ Intraday or real-time markets, modelling national subsidies, any AI assistant (s
 - ADR-001: MotherDuck over BigQuery. Google Cloud required a EUR 25 prepayment; MotherDuck is free and already familiar.
 - ADR-002: Prefect executed via GitHub Actions. Free tier, already familiar, Prefect acquired Dagster in July 2026; execution on GitHub Actions avoids depending on the free tier's managed compute.
 - ADR-003: Time, DST and resolution conventions (as above).
+- ADR-008: A monitor of unusual system conditions, built alongside Phase 3; a blackout probability was rejected as infeasible with these data.
 
 ## Commands
 
