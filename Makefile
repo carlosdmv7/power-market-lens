@@ -115,22 +115,28 @@ run: ## Run the entrypoint
 # Opens the release PR; merging it makes the Release workflow tag main and
 # publish the GitHub Release (CONTRIBUTING.md, Releases). Nothing is tagged from
 # a laptop: the tag always points at a commit CI has seen on main.
+# The PR is built in a throwaway worktree on origin/main, so the branch you are
+# on, and any uncommitted work in it, is never touched.
 .PHONY: release-pr
 release-pr: ## Open a release PR: make release-pr BUMP=patch|minor|major|none
 	@case "$(BUMP)" in patch|minor|major|none) ;; \
 		*) echo "usage: make release-pr BUMP=patch|minor|major|none" && exit 1 ;; esac
-	@test -z "$$(git status --porcelain)" || (echo "working tree not clean" && exit 1)
-	git checkout main && git pull --ff-only
 	@set -e; \
-	if [ "$(BUMP)" != none ]; then uv version --bump $(BUMP) --no-sync; fi; \
+	repo="$$(pwd)"; version=""; \
+	git fetch -q origin main; \
+	wt="$$(mktemp -d)/release"; \
+	git worktree add -q --detach "$$wt" origin/main; \
+	trap 'git -C "$$repo" worktree remove --force "$$wt"; \
+		[ -z "$$version" ] || git -C "$$repo" branch -q -D "chore/release-v$$version" 2>/dev/null || true' EXIT; \
+	cd "$$wt"; \
+	if [ "$(BUMP)" != none ]; then uv version -q --bump $(BUMP) --no-sync; fi; \
 	version="$$(uv version --short)"; \
 	if git ls-remote --exit-code --tags origin "refs/tags/v$$version" >/dev/null; then \
-		git checkout -- pyproject.toml uv.lock; \
-		echo "v$$version is already released: pick a BUMP"; exit 1; fi; \
-	git checkout -b "chore/release-v$$version"; \
-	git commit --allow-empty -am "chore(release): v$$version"; \
-	git push -u origin "chore/release-v$$version"; \
-	gh pr create --title "chore(release): v$$version" \
+		echo "v$$version is already released: pick a BUMP"; version=""; exit 1; fi; \
+	git switch -q -c "chore/release-v$$version"; \
+	git commit -q --allow-empty -am "chore(release): v$$version"; \
+	git push -q -u origin "chore/release-v$$version"; \
+	gh pr create --head "chore/release-v$$version" --title "chore(release): v$$version" \
 		--body "Release v$$version. Merging this (squash) makes the Release workflow tag main and publish the GitHub Release with generated notes."
 
 # ── Utilities ──────────────────────────────────────────────────────────────────
