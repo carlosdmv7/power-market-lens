@@ -1,0 +1,8 @@
+nrg_cons,band_code,band_label,min_kwh_per_year,max_kwh_per_year
+TOT_KWH,ALL,All consumption bands,,
+KWH_LT1000,DA,"Under 1,000 kWh a year",0,1000
+KWH1000-2499,DB,"1,000 to 2,499 kWh a year",1000,2500
+KWH2500-4999,DC,"2,500 to 4,999 kWh a year",2500,5000
+KWH5000-14999,DD,"5,000 to 14,999 kWh a year",5000,15000
+KWH_GE15000,DE,"15,000 kWh a year or more",15000,
+KWH_LE15000,DE,"15,000 kWh a year or more",15000,

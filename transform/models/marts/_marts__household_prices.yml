@@ -1,0 +1,179 @@
+version: 2
+
+models:
+  - name: fct_household_price_halfyearly
+    config:
+      contract:
+        enforced: true
+    description: >
+      What a household pays for electricity per kWh, per country, half-year
+      and consumption band, split into the price before taxes, taxes and
+      levies, and VAT. From Eurostat nrg_pc_204 (ADR-010). Grain: country ×
+      half-year × band.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [country_code, period_code, band_code]
+      # VAT is a percentage of the price before VAT, so it has that price's
+      # sign. It is negative only where the price itself is: Dutch households
+      # using under 1,000 kWh a year, whose energy-tax refund exceeds the bill.
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "vat_eur_kwh * (price_excl_taxes_eur_kwh + taxes_and_levies_eur_kwh) >= 0"
+    columns:
+      - name: country_code
+        data_type: varchar
+        description: Country code, e.g. ES. The countries of the modelled bidding zones.
+        data_tests:
+          - not_null
+      - name: country_name
+        data_type: varchar
+        description: Country name in English.
+        data_tests:
+          # Null means a Eurostat country missing from the bidding_zones seed.
+          - not_null
+      - name: period_code
+        data_type: varchar
+        description: Half-year, e.g. 2025-S2.
+        data_tests:
+          - not_null
+      - name: period_start_date
+        data_type: date
+        description: First day of the half-year.
+        data_tests:
+          - not_null
+      - name: band_code
+        data_type: varchar
+        description: Consumption band, DA to DE, or ALL. DC (2,500 to 4,999 kWh a year) is Eurostat's typical household.
+        data_tests:
+          - not_null
+      - name: band_label
+        data_type: varchar
+        description: Band range in words.
+      - name: price_excl_taxes_eur_kwh
+        data_type: double
+        description: Price per kWh without taxes and levies (energy, supply and network), EUR.
+      - name: taxes_and_levies_eur_kwh
+        data_type: double
+        description: >
+          Taxes, fees, levies and charges other than VAT, per kWh, EUR. Negative
+          where refunds exceed them (the Netherlands' energy-tax refund).
+      - name: vat_eur_kwh
+        data_type: double
+        description: VAT and other recoverable taxes per kWh, EUR. Same sign as the price before VAT.
+      - name: price_incl_all_taxes_eur_kwh
+        data_type: double
+        description: >
+          What the household pays per kWh, all taxes included, EUR. Negative
+          for Dutch households using under 1,000 kWh a year since 2017 (as low
+          as -0.92 in 2022): the fixed energy-tax refund exceeds the bill.
+        data_tests:
+          # A sanity range, not a plausibility one: real values reach -0.92
+          # (above). Outside it is a unit or parsing error.
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -2
+                max_value: 2
+      - name: status_flags
+        data_type: varchar
+        description: Eurostat flags of the three published prices, comma-separated; null when none.
+      - name: source_updated_at
+        data_type: timestamp with time zone
+        description: The Eurostat version the row comes from, UTC.
+
+  - name: fct_household_price_components_yearly
+    config:
+      contract:
+        enforced: true
+    description: >
+      What a household's price per kWh is made of, per country, year and
+      consumption band: energy and supply, network costs, taxes and levies,
+      VAT. From Eurostat nrg_pc_204_c, which is compiled yearly and does not add
+      up to the half-yearly prices; the two are never combined (ADR-010).
+      Grain: country × year × band × component.
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [country_code, year, band_code, component]
+    columns:
+      - name: country_code
+        data_type: varchar
+        description: Country code, e.g. ES.
+        data_tests:
+          - not_null
+      - name: country_name
+        data_type: varchar
+        description: Country name in English.
+        data_tests:
+          - not_null
+      - name: year
+        data_type: integer
+        description: Calendar year.
+        data_tests:
+          - not_null
+      - name: band_code
+        data_type: varchar
+        description: Consumption band, DA to DE, or ALL.
+        data_tests:
+          - not_null
+      - name: band_label
+        data_type: varchar
+        description: Band range in words.
+      - name: component
+        data_type: varchar
+        description: energy_and_supply, network, taxes_and_levies or vat.
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [energy_and_supply, network, taxes_and_levies, vat]
+      - name: component_label
+        data_type: varchar
+        description: Component name for display.
+      - name: component_eur_kwh
+        data_type: double
+        description: >
+          The component per kWh, EUR. Taxes and levies can be negative: the
+          Netherlands' fixed refund, spread over few kWh, reaches -1.46 for band
+          DA in 2022.
+        data_tests:
+          - not_null
+          - dbt_expectations.expect_column_values_to_be_between:
+              arguments:
+                min_value: -2
+                max_value: 2
+      - name: share_of_total
+        data_type: double
+        description: The component's share of the four components' sum. Negative for a net refund.
+      - name: status_flag
+        data_type: varchar
+        description: Eurostat flag of the value, null when none.
+      - name: source_updated_at
+        data_type: timestamp with time zone
+        description: The Eurostat version the row comes from, UTC.
+
+unit_tests:
+  - name: test_household_price_splits_taxes_even_when_they_are_negative
+    description: >
+      Taxes and levies are the price without VAT minus the price without
+      taxes; VAT is the price with everything minus the price without VAT.
+      The Dutch case: a refund makes the price without VAT lower than the
+      price without taxes, so taxes and levies come out negative. A pre-2007
+      band (KWH3500) is dropped. Values are exact in binary floating point.
+    model: fct_household_price_halfyearly
+    given:
+      - input: ref('stg_eurostat__household_prices')
+        rows:
+          - {country_code: NL, period_code: 2024-S1, period_start_date: 2024-01-01, nrg_cons: KWH2500-4999, tax: X_TAX, price_eur_kwh: 0.375}
+          - {country_code: NL, period_code: 2024-S1, period_start_date: 2024-01-01, nrg_cons: KWH2500-4999, tax: X_VAT, price_eur_kwh: 0.25}
+          - {country_code: NL, period_code: 2024-S1, period_start_date: 2024-01-01, nrg_cons: KWH2500-4999, tax: I_TAX, price_eur_kwh: 0.3125, status_flag: d}
+          - {country_code: NL, period_code: 2007-S1, period_start_date: 2007-01-01, nrg_cons: KWH3500, tax: I_TAX, price_eur_kwh: 0.25}
+      - input: ref('eurostat_consumption_bands')
+        rows:
+          - {nrg_cons: KWH2500-4999, band_code: DC, band_label: "2,500 to 4,999 kWh a year"}
+      - input: ref('bidding_zones')
+        rows:
+          - {bidding_zone_eic: "10YNL----------L", zone_code: NL, country_code: NL, country_name: Netherlands}
+    expect:
+      rows:
+        - {country_code: NL, country_name: Netherlands, period_code: 2024-S1, band_code: DC, price_excl_taxes_eur_kwh: 0.375, taxes_and_levies_eur_kwh: -0.125, vat_eur_kwh: 0.0625, price_incl_all_taxes_eur_kwh: 0.3125, status_flags: d}

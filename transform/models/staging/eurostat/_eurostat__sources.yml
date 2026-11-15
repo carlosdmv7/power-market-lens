@@ -1,0 +1,73 @@
+version: 2
+
+sources:
+  - name: eurostat
+    description: >
+      Eurostat household electricity prices, appended by the Python loader
+      (src/power_market_lens/ingest/eurostat.py) only when Eurostat publishes a
+      new version of a dataset (ADR-010). Countries of the modelled zones, in
+      euros. No freshness check: the data is months old by design, and a
+      failed load fails the pipeline run itself.
+    schema: raw
+    tables:
+      - name: household_prices
+        identifier: eurostat_household_prices
+        description: Dataset nrg_pc_204, half-yearly price per kWh by consumption band and tax treatment, one full copy per published version.
+        columns:
+          - name: geo
+            description: Eurostat country code, e.g. ES, DE.
+          - name: time_period
+            description: Half-year as Eurostat writes it, e.g. 2025-S2.
+          - name: nrg_cons
+            description: Eurostat consumption band code, e.g. KWH2500-4999 (band DC).
+          - name: tax
+            description: X_TAX excluding taxes and levies, X_VAT excluding VAT and recoverable taxes, I_TAX all taxes included.
+          - name: currency
+            description: Always EUR (the loader requests euros and refuses anything else).
+          - name: price_eur_kwh
+            description: Price per kWh in euros, as published.
+          - name: status_flag
+            description: Eurostat flag of the value (p provisional, d definition differs...), null when none.
+          - name: source_updated_at
+            description: When Eurostat last updated the dataset; identifies the version, UTC.
+          - name: _loaded_at
+            description: When the loader appended the batch, UTC.
+          - name: _source
+            description: Source and dataset, e.g. eurostat:nrg_pc_204.
+          - name: _window_start
+            description: First period requested, as an instant (2007-01-01 UTC).
+          - name: _window_end
+            description: Load time (the request covers everything up to now).
+          - name: _run_id
+            description: Prefect flow-run id of the load, or a label for manual runs.
+
+      - name: household_price_components
+        identifier: eurostat_household_price_components
+        description: Dataset nrg_pc_204_c, yearly price components per kWh by consumption band, one full copy per published version.
+        columns:
+          - name: geo
+            description: Eurostat country code, e.g. ES, DE.
+          - name: time_period
+            description: Year, e.g. 2025.
+          - name: nrg_cons
+            description: Eurostat consumption band code; band DE is KWH_LE15000 in this dataset.
+          - name: nrg_prc
+            description: Price component code, e.g. NRG_SUP, NETC, TAX_FEE_LEV_CHRG, VAT, and sub-items.
+          - name: currency
+            description: Always EUR.
+          - name: component_eur_kwh
+            description: Component per kWh in euros, as published. Allowances are published as positive amounts.
+          - name: status_flag
+            description: Eurostat flag of the value, null when none.
+          - name: source_updated_at
+            description: When Eurostat last updated the dataset; identifies the version, UTC.
+          - name: _loaded_at
+            description: When the loader appended the batch, UTC.
+          - name: _source
+            description: Source and dataset, e.g. eurostat:nrg_pc_204_c.
+          - name: _window_start
+            description: First period requested, as an instant (2017-01-01 UTC).
+          - name: _window_end
+            description: Load time.
+          - name: _run_id
+            description: Prefect flow-run id of the load, or a label for manual runs.
