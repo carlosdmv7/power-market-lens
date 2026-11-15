@@ -218,6 +218,47 @@ def daily_zone_prices(day: date) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=CACHE_TTL_S)
+def household_prices() -> pd.DataFrame:
+    """Every half-year's household price per country and band, split into the
+    price before taxes, taxes and levies, and VAT (Eurostat nrg_pc_204).
+
+    A few thousand rows in all, so the page filters in pandas. Empty until the
+    pipeline has built the mart.
+    """
+    try:
+        return _query(
+            """
+            select country_code, country_name, period_code, period_start_date, band_code,
+                   band_label, price_excl_taxes_eur_kwh, taxes_and_levies_eur_kwh, vat_eur_kwh,
+                   price_incl_all_taxes_eur_kwh, source_updated_at
+            from marts.fct_household_price_halfyearly
+            where price_incl_all_taxes_eur_kwh is not null
+            order by period_start_date, country_code, band_code
+            """
+        )
+    except duckdb.CatalogException:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=CACHE_TTL_S)
+def household_price_components() -> pd.DataFrame:
+    """The four components of the household price per country, year and band
+    (Eurostat nrg_pc_204_c). Compiled yearly by another method: never combined
+    with `household_prices` in one figure (ADR-010). Empty until built."""
+    try:
+        return _query(
+            """
+            select country_code, country_name, year, band_code, component, component_eur_kwh,
+                   share_of_total
+            from marts.fct_household_price_components_yearly
+            order by year, country_code, band_code, component
+            """
+        )
+    except duckdb.CatalogException:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=CACHE_TTL_S)
 def daily_net_flows(day: date) -> pd.DataFrame:
     """Mean net physical flow per border over a local delivery day, as
     source → target (the importer), MW. Empty until the interchange mart exists.

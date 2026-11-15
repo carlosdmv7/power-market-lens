@@ -32,6 +32,54 @@ def add_interchange(path: Path) -> None:
     con.close()
 
 
+def add_households(path: Path) -> None:
+    """Two half-years and two bands for Spain, Germany and the Netherlands.
+
+    Band DC (typical): the Dutch taxes and levies are negative, the price is
+    not. Band DA: the Dutch refund exceeds the bill, the price is negative.
+    Values are exact in binary floating point.
+    """
+    con = duckdb.connect(path)
+    con.execute(
+        """
+        create table marts.fct_household_price_halfyearly as
+        select country_code, country_name, period_code, cast(period_start as date) as period_start_date,
+               band_code, band_label, ex as price_excl_taxes_eur_kwh,
+               tl as taxes_and_levies_eur_kwh, vat as vat_eur_kwh,
+               ex + tl + vat as price_incl_all_taxes_eur_kwh,
+               timestamptz '2026-10-19 21:00:00+00' as source_updated_at
+        from (
+            values ('ES', 'Spain', 'DC', '2,500 to 4,999 kWh a year', 0.1875, 0.03125, 0.03125),
+                   ('DE', 'Germany', 'DC', '2,500 to 4,999 kWh a year', 0.25, 0.0625, 0.0625),
+                   ('NL', 'Netherlands', 'DC', '2,500 to 4,999 kWh a year', 0.3125, -0.0625, 0.03125),
+                   ('ES', 'Spain', 'DA', 'Under 1,000 kWh a year', 0.5, 0.0625, 0.0625),
+                   ('DE', 'Germany', 'DA', 'Under 1,000 kWh a year', 0.5, 0.125, 0.125),
+                   ('NL', 'Netherlands', 'DA', 'Under 1,000 kWh a year', 0.5, -0.75, -0.03125)
+        ) as v(country_code, country_name, band_code, band_label, ex, tl, vat)
+        cross join (
+            values ('2025-S2', '2025-07-01'), ('2026-S1', '2026-01-01')
+        ) as p(period_code, period_start)
+        """
+    )
+    con.execute(
+        """
+        create table marts.fct_household_price_components_yearly as
+        select country_code, country_name, 2025 as year, 'DC' as band_code, component,
+               value as component_eur_kwh,
+               value / sum(value) over (partition by country_code) as share_of_total
+        from (
+            values ('ES', 'Spain', 'energy_and_supply', 0.125), ('ES', 'Spain', 'network', 0.0625),
+                   ('ES', 'Spain', 'taxes_and_levies', 0.0625), ('ES', 'Spain', 'vat', 0.0625),
+                   ('NL', 'Netherlands', 'energy_and_supply', 0.125),
+                   ('NL', 'Netherlands', 'network', 0.125),
+                   ('NL', 'Netherlands', 'taxes_and_levies', -0.015625),
+                   ('NL', 'Netherlands', 'vat', 0.046875)
+        ) as v(country_code, country_name, component, value)
+        """
+    )
+    con.close()
+
+
 def make_warehouse(path: Path, with_data: bool | None) -> None:
     """with_data None: a database where dbt has never built the marts."""
     con = duckdb.connect(path)
@@ -126,15 +174,20 @@ def make_warehouse(path: Path, with_data: bool | None) -> None:
 def run_page(tmp_path, monkeypatch):
     def run(
         with_data: bool | None,
+        *,
         zone: str | None = None,
         page: str | None = None,
         interchange: bool = False,
         noisy_load: bool = False,
+        households: bool = False,
+        query: dict[str, str] | None = None,
     ) -> AppTest:
-        warehouse = tmp_path / f"{with_data}-{zone}-{interchange}-{noisy_load}.duckdb"
+        warehouse = tmp_path / f"{with_data}-{zone}-{interchange}-{noisy_load}-{households}.duckdb"
         make_warehouse(warehouse, with_data)
         if interchange:
             add_interchange(warehouse)
+        if households:
+            add_households(warehouse)
         if noisy_load:
             # DE-LU's forecast alternates 15% above and below the actual.
             con = duckdb.connect(warehouse)
@@ -152,6 +205,8 @@ def run_page(tmp_path, monkeypatch):
         at = AppTest.from_file(str(APP), default_timeout=30)
         if zone is not None:
             at.query_params["zone"] = zone
+        for key, value in (query or {}).items():
+            at.query_params[key] = value
         at.run()
         if page is not None:
             at.switch_page(page).run()
@@ -346,3 +401,51 @@ def test_a_large_but_two_sided_forecast_miss_is_not_a_definition_gap(run_page):
     at = run_page(with_data=True, zone="DE-LU", noisy_load=True)
 
     assert not any("do not cover the same consumption" in c.value for c in at.caption)
+
+
+HOUSEHOLDS = "views/households.py"
+
+
+def test_households_page_answers_for_the_typical_household(run_page):
+    at = run_page(with_data=True, households=True, page=HOUSEHOLDS)
+
+    assert not at.exception
+    assert not at.error
+    assert at.selectbox[0].value == "DC"
+    assert len(at.get("vega_lite_chart")) == 3  # split by taxes, history, components
+    assert any(
+        "In Jan–Jun 2026, a household using 2,500 to 4,999 kWh a year paid between "
+        "0.250 €/kWh in Spain and 0.375 €/kWh in Germany" in m.value
+        for m in at.markdown
+    )
+    # Dutch taxes are negative at this band; the price is not.
+    assert any("Dutch taxes and levies are below zero" in m.value for m in at.markdown)
+    assert not any("Dutch price is below zero" in m.value for m in at.markdown)
+    assert any("Latest half-year" in m.value and "Jan–Jun 2026" in m.value for m in at.markdown)
+    assert not any("Below zero:" in c.value for c in at.caption)
+
+
+def test_households_page_explains_a_negative_dutch_price(run_page):
+    at = run_page(with_data=True, households=True, page=HOUSEHOLDS, query={"band": "DA"})
+
+    assert not at.exception
+    assert at.selectbox[0].value == "DA"
+    assert any(
+        "between -0.281 €/kWh in the Netherlands and 0.750 €/kWh in Germany" in m.value
+        for m in at.markdown
+    )
+    assert any("The Dutch price is below zero" in m.value for m in at.markdown)
+    assert any(
+        "Below zero: Netherlands, as low as -0.281 €/kWh in Jul–Dec 2025" in c.value
+        for c in at.caption
+    )
+    # No yearly components for this band in the fixture: that section is left out.
+    assert len(at.get("vega_lite_chart")) == 2
+
+
+def test_households_page_before_the_marts_exist_explains_itself(run_page):
+    at = run_page(with_data=True, page=HOUSEHOLDS)
+
+    assert not at.exception
+    assert not at.error
+    assert "Household prices are not in the warehouse yet" in at.info[0].value

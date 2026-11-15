@@ -38,6 +38,12 @@ page = st.navigation(
     [
         st.Page(VIEWS / "zone.py", title="Zone", icon=":material/show_chart:", default=True),
         st.Page(VIEWS / "map.py", title="Map", icon=":material/map:", url_path="map"),
+        st.Page(
+            VIEWS / "households.py",
+            title="Households",
+            icon=":material/home:",
+            url_path="households",
+        ),
     ],
     position="top",
 )

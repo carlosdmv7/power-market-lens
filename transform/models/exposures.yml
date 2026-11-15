@@ -8,15 +8,18 @@ exposures:
     url: https://power-market-lens-carlosdmv7.streamlit.app/
     description: >
       The public Streamlit app: a zone page (price, generation mix, demand
-      against forecast, carbon intensity) and a map page (one day's mean price
-      per zone with net cross-border flows). It reads these marts and nothing
-      else; tests/app/test_exposure.py keeps this list equal to the marts
-      app/data.py queries.
+      against forecast, carbon intensity), a map page (one day's mean price
+      per zone with net cross-border flows) and a households page (what a
+      household pays per kWh, and its components). It reads these marts and
+      nothing else; tests/app/test_exposure.py keeps this list equal to the
+      marts app/data.py queries.
     depends_on:
       - ref('dim_bidding_zone')
       - ref('fct_day_ahead_price_hourly')
       - ref('fct_generation_hourly')
       - ref('fct_generation_mix_hourly')
+      - ref('fct_household_price_components_yearly')
+      - ref('fct_household_price_halfyearly')
       - ref('fct_interchange_hourly')
       - ref('fct_load_hourly')
     owner:
