@@ -11,7 +11,29 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
+  # PRs are squash-merged, so the title becomes the commit on main and a line in
+  # the release notes. The commit-msg hook never sees it; this check does. Same
+  # types as the hook in .pre-commit-config.yaml.
+  pr-title:
+    name: PR title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Conventional Commits title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}  # via env: never interpolate user text into the script
+        run: |
+          pattern='^(feat|fix|perf|refactor|docs|test|ci|chore)(\([a-z0-9-]+\))?!?: [^ ].*[^.]$'
+          if [[ ! "$TITLE" =~ $pattern ]]; then
+            echo "::error::PR title \"$TITLE\" is not '<type>(<scope>): <subject>' with type in feat|fix|perf|refactor|docs|test|ci|chore and no final full stop. See CONTRIBUTING.md."
+            exit 1
+          fi
+          echo "OK: $TITLE"
+
   check:
     name: Lint + format + tests
     runs-on: ubuntu-latest
