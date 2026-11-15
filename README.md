@@ -18,11 +18,12 @@ built to grow into a platform that explains day-ahead prices across European bid
 the generation mix, the drivers of the price, what households actually pay, and a day-ahead
 price forecast for Spain.
 
-> **Phase 1 of a five-phase roadmap.** Twelve bidding zones (Spain, Portugal, France,
-> Germany–Luxembourg, the Netherlands and Italy's seven zones), with hourly day-ahead prices
-> and generation by technology from January 2024, loaded daily from ENTSO-E. Load, cross-border
-> flows, emission factors and the quarter-hour price mart are in review; forecasting and
-> household prices come later ([roadmap](#roadmap)).
+> **Phase 1 of a five-phase roadmap is complete.** Twelve bidding zones (Spain, Portugal,
+> France, Germany–Luxembourg, the Netherlands and Italy's seven zones) from January 2024,
+> loaded daily from ENTSO-E: day-ahead prices (hourly and quarter-hourly), generation by
+> technology with renewable share and lifecycle carbon intensity, load against the TSO's
+> forecast, and cross-border flows. Household prices and the price forecast come next
+> ([roadmap](#roadmap), [Phase 1 summary](docs/phase-1-summary.md)).
 
 ---
 
@@ -38,10 +39,13 @@ price forecast for Spain.
 
 ![Spain: hourly day-ahead price above the generation mix, on one shared time axis](docs/img/spain.png)
 
-The page answers its question in one sentence before any control. The two charts share one
-time axis, so an hour sits at the same position in both. Any of the twelve bidding zones can be
-picked (`?zone=FR` in the URL), and times are the zone's local time. A map page compares one
-day's mean price across all twelve:
+The page answers its question in one sentence before any control, then gives the week's
+renewable and low-carbon share, carbon intensity and load. Its four charts (price,
+generation by technology, demand against the day-ahead forecast, carbon intensity) share one
+time axis, so an hour sits at the same position in all of them. Any of the twelve bidding
+zones can be picked (`?zone=FR` in the URL), and times are the zone's local time. A map page
+compares one day's mean price across all twelve, with each border's net physical flow drawn
+as an arrow towards the importer:
 
 ![One day's mean day-ahead price in each of the twelve bidding zones, as a map and a ranking](docs/img/map.png)
 
@@ -115,10 +119,11 @@ flowchart LR
 
 ### Data quality
 
-Each build runs 82 dbt nodes: seeds, models, data tests and unit tests. Among them:
+Each build runs 189 dbt nodes: seeds, models, data tests and unit tests. Among them:
 
-- complete local days per zone, at 23, 24 or 25 hours, except the source gaps listed in a
-  seed;
+- complete local days per zone, at 23, 24 or 25 hours (92, 96 or 100 quarter-hours), except
+  the source gaps listed in a seed. For measured data, days still inside the 7-day re-pull
+  window only warn, because a TSO can publish an hour late; older days fail;
 - `unique` and `not_null` on every key, and a check that the SDAC limits seed is contiguous
   and non-overlapping;
 - unit tests for both DST changes, for staging's deduplication, and for picking the finest
@@ -178,20 +183,27 @@ docs/adr/                architecture decision records
 | Phase | Scope |
 |---|---|
 | 0 (done) | Foundations, and a Spain-only slice: day-ahead prices and generation, loaded daily |
-| **1 (current)** | All bidding zones, load, cross-border flows, technology mapping and emission factors, a 2–3 year backfill; map and zone-mix pages |
-| 2 | MetricFlow metrics (renewable share, carbon intensity, average price, spread); household price composition from Eurostat and the Spanish PVPC from ESIOS |
+| 1 (done) | All bidding zones, load, cross-border flows, technology mapping and emission factors, a 2–3 year backfill; map and zone-mix pages ([summary](docs/phase-1-summary.md)) |
+| **2 (next)** | MetricFlow metrics (renewable share, carbon intensity, average price, spread); household price composition from Eurostat and the Spanish PVPC from ESIOS |
 | 3 | Day-ahead price forecast for Spain: leakage-safe features, rolling-origin backtests against a naive baseline, prediction intervals, SHAP drivers |
 | 4 | Slim CI with deferral to the prod manifest, dbt docs on GitHub Pages, a case study |
 
 ## Limitations
 
-- Prices and generation are live for twelve zones. Load and cross-border flows are loaded
-  into raw daily, but their marts, the emission factors and their pages are still in review. Forecasting and
-  household prices are not answered yet.
+- Household prices and the day-ahead forecast are not answered yet (Phases 2 and 3).
 - Generation is ENTSO-E's actual generation per type, as reported by the TSO. It can arrive
   late and be revised, which is why every run re-pulls a week.
-- The page's five generation groups are a display choice. A modelled technology mapping
-  in dbt, in review, replaces them.
+- Carbon intensity is production-based and uses IPCC AR5 lifecycle medians. AR5 has no
+  lignite row, so lignite takes the hard-coal factor and Germany's intensity is understated;
+  the mart reports how much of each hour rests on that proxy
+  ([ADR-004](docs/adr/0004-technology-mapping-and-emission-factors.md)).
+- Load is the TSO's own definition. The Netherlands' day-ahead forecast runs about 15% above
+  its reported actual load: a difference in what is counted, not a forecast error, and the
+  page says so.
+- Flows are physical, not commercial schedules, and a few borders have hours the TSOs never
+  published; those are reported as warnings, not filled.
+- GitHub starts the scheduled pipeline hours after the cron time on most days, so tomorrow's
+  prices usually appear in the evening rather than at 13:00.
 
 ## License
 
