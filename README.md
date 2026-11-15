@@ -8,6 +8,8 @@
 ![Python](https://img.shields.io/badge/python-3.13-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
+**Live app: [power-market-lens-carlosdmv7.streamlit.app](https://power-market-lens-carlosdmv7.streamlit.app/)**
+
 Every day, Europe's day-ahead auction sets tomorrow's electricity price, quarter-hour by
 quarter-hour. The same megawatt-hour can be close to free at lunchtime and cost almost a hundred times
 more in the evening. The price is published as a list of numbers, with nothing next to it
