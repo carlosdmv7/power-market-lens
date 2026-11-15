@@ -8,8 +8,17 @@
     model in the known_source_gaps seed (data the publisher never released) are
     skipped; any other incomplete day still fails. Returns the failing days
     with the hours found and expected.
+
+    `older_than_days` and `within_days` restrict the test to days at least, or
+    less than, that many days before today (UTC). Measured data can be
+    published late, and every run re-pulls the trailing window, so a model can
+    carry the test twice: failing on days the window no longer reaches, and
+    only warning on days it still does (ADR-006, amendment). With neither
+    argument the test covers every day.
 #}
-{% test complete_local_days(model, partition_by, hour_column='hour_start_utc') %}
+{% test complete_local_days(
+    model, partition_by, hour_column='hour_start_utc', older_than_days=none, within_days=none
+) %}
 
 with hours_per_day as (
     select
@@ -71,5 +80,11 @@ left join known_gaps
 where
     (hours_per_day.n_hours is null or hours_per_day.n_hours != hours_per_day.expected_hours)
     and known_gaps.partition_key is null
+    {% if older_than_days is not none %}
+    and calendar.delivery_date_local < current_date - {{ older_than_days }}
+    {% endif %}
+    {% if within_days is not none %}
+    and calendar.delivery_date_local >= current_date - {{ within_days }}
+    {% endif %}
 
 {% endtest %}
