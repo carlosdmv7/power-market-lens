@@ -187,7 +187,7 @@ docs/adr/                architecture decision records
 | 0 (done) | Foundations, and a Spain-only slice: day-ahead prices and generation, loaded daily |
 | 1 (done) | All bidding zones, load, cross-border flows, technology mapping and emission factors, a 2–3 year backfill; map and zone-mix pages ([summary](docs/phase-1-summary.md)) |
 | **2 (next)** | MetricFlow metrics (renewable share, carbon intensity, average price, spread); household price composition from Eurostat and the Spanish PVPC from ESIOS |
-| 3 | Day-ahead price forecast for Spain: leakage-safe features, rolling-origin backtests against a naive baseline, prediction intervals, SHAP drivers |
+| 3 | Day-ahead price forecast for Spain: leakage-safe features, rolling-origin backtests against a naive baseline, prediction intervals, SHAP drivers; a monitor of unusual system conditions per zone (PCA, Hotelling T² and Q, [ADR-008](docs/adr/0008-unusual-system-conditions-monitor.md)) |
 | 4 | Slim CI with deferral to the prod manifest, dbt docs on GitHub Pages, a case study |
 
 ## Limitations

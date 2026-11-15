@@ -1,6 +1,6 @@
 # ADR-008 — A monitor of unusual system conditions, not a blackout probability
 
-- **Status:** proposed (awaiting review)
+- **Status:** accepted (2026-11-15)
 - **Date:** 2026-11-15
 
 ## Context
@@ -78,7 +78,7 @@ Two findings shaped the design:
   points straight at the forecast error. Several Spanish days are explained
   by nuclear alone, which matches reactors stopping or restarting.
 
-## Decision (proposed)
+## Decision
 
 Build a **monitor of unusual system conditions**, per zone and hour, and
 never present it as a blackout probability.
@@ -100,7 +100,7 @@ never present it as a blackout probability.
 ## Alternatives considered
 
 - **(a) Blackout probability.** Rejected for the reasons above.
-- **(b) The monitor as proposed.** Recommended.
+- **(b) The monitor as proposed.** Chosen on 2026-11-15.
 - **(c) Compute it in the app on the fly.** No warehouse writes and no
   pipeline change; about 25,000 rows per zone is cheap. Rejected: the
   app would hold modelling logic, results would not be tested or stored,
