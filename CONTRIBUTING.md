@@ -5,9 +5,12 @@ How changes get from an idea to `main`, and from `main` to a release.
 ## The loop
 
 ```bash
-# 1. Always branch from a fresh main. Never branch from a branch.
-git checkout main && git pull
-git checkout -b feat/zone-price-map          # <type>/<short-kebab-description>
+# 1. Branch from a fresh origin/main, never from another branch, in its own
+#    worktree so other work in progress (yours or another session's) is untouched.
+git fetch origin
+git worktree add ../power-market-lens-zone-map -b feat/zone-price-map origin/main
+cd ../power-market-lens-zone-map             # branch: <type>/<short-kebab-description>
+cp ../power-market-lens/.env . && make install   # a worktree starts without .env or dbt packages
 
 # 2. ... do the work, commit as often as you like ...
 
@@ -18,14 +21,15 @@ make check
 git push -u origin feat/zone-price-map
 gh pr create --title "feat(app): map page comparing one day's price across zones"
 
-# 5. Squash-merge once CI is green
-gh pr merge --squash --delete-branch
-git checkout main && git pull
+# 5. Squash-merge once CI is green, then drop the worktree
+gh pr merge --squash
+cd - && git worktree remove ../power-market-lens-zone-map
+git branch -D feat/zone-price-map            # -D: a squashed branch never looks merged to git
 ```
 
-Two pieces of work at once (say, a dbt PR waiting for review while you start on
-the app) go in separate worktrees, not in one directory switching branches:
-`git worktree add ../power-market-lens-<topic> -b <type>/<topic> origin/main`.
+Why worktrees: two pieces of work in one directory means switching branches,
+and switching branches with uncommitted changes loses or mixes them. This has
+happened here.
 
 ## Types
 
@@ -38,7 +42,7 @@ commit-msg hook and the CI `PR title` check reject anything else.
 | `fix` | Something was wrong and now is right. Includes wrong data. | `fix(app): average the repeated DST hour instead of summing it` |
 | `perf` | Same result, faster or cheaper. | `perf(ingest): fetch flow directions concurrently` |
 | `refactor` | Same behaviour, better code. No user-visible change. | `refactor(ingest): one parser per ENTSO-E document type` |
-| `docs` | README, ADRs, runbook, docstrings, dbt descriptions only. | `docs(adr): 0008 no Docker` |
+| `docs` | README, ADRs, runbook, docstrings, dbt descriptions only. | `docs(adr): 0009 no Docker image` |
 | `test` | Tests or fixtures only. | `test(dbt): unit test for the DST day in int_prices__hourly` |
 | `ci` | GitHub Actions workflows, pre-commit, Makefile targets. | `ci(pipeline): step timeouts on every run` |
 | `chore` | Maintenance that fits nowhere else: dependency bumps, releases, config. | `chore(deps): bump duckdb to 1.5.7` |
@@ -58,6 +62,10 @@ type or meaning.
 characters. Say what changed from the reader's point of view, not which files
 moved.
 
+**Reverts**: GitHub's default `Revert "…"` title fails the check. Title the
+revert PR with the type of the original and say so, e.g. `fix(app): revert
+the stale-data notice (#51)`, and explain in the body why it was reverted.
+
 ## Pull requests
 
 - **Squash merge only.** One PR becomes one commit on `main`, named by the PR
@@ -69,7 +77,9 @@ moved.
   and why, how it was verified (the command you ran, not "tests pass"), and
   what is left.
 - **dbt changes are reviewed line by line by the owner** before merging.
-- **CI must be green.** Nothing lands on a red or cancelled run.
+- **CI must be green.** Branch protection on `main` requires the CI checks to
+  pass, also for admins, and allows squash merges only. Nothing lands on a red
+  or cancelled run.
 
 ## Releases
 
@@ -84,7 +94,8 @@ live.
 
 ```bash
 make release-pr BUMP=minor   # or patch / major; BUMP=none releases the current version
-# → opens a PR "chore(release): vX.Y.Z" that bumps pyproject.toml and uv.lock.
+# → opens a PR "chore(release): vX.Y.Z" that bumps pyproject.toml and uv.lock,
+#   built in a throwaway worktree on origin/main (your checkout is not touched).
 #   Add the phase summary or release notes to it if there are any.
 gh pr merge --squash --delete-branch
 # → the Release workflow sees the chore(release) commit on main, checks it
@@ -93,7 +104,10 @@ gh pr merge --squash --delete-branch
 
 There is no deploy step: merging to `main` is the deploy. Streamlit Community
 Cloud redeploys the app from `main`, and the scheduled Pipeline runs `main`. A
-release names a version; it does not ship anything.
+release names a version; it does not ship anything (ADR-009).
+
+When the scheduled Pipeline goes red or the app shows stale data, follow
+`docs/runbook.md`.
 
 ## Rules
 
