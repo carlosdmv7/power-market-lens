@@ -11,6 +11,10 @@ zones as (
 
 psr_types as (
     select * from {{ ref('entsoe_psr_types') }}
+),
+
+technologies as (
+    select * from {{ ref('technology_mapping') }}
 )
 
 select
@@ -20,6 +24,9 @@ select
     {{ local_time_columns('hourly.hour_start_utc', 'zones.timezone') }},
     hourly.psr_type,
     psr_types.psr_name,
+    -- The app's grouping comes from the seed (ADR-004), not from app code.
+    technologies.technology,
+    technologies.display_group,
     hourly.generation_mw,
     hourly.consumption_mw,
     hourly.resolution_minutes,
@@ -30,3 +37,5 @@ left join zones
     on hourly.bidding_zone_eic = zones.bidding_zone_eic
 left join psr_types
     on hourly.psr_type = psr_types.psr_type
+left join technologies
+    on hourly.psr_type = technologies.psr_type
