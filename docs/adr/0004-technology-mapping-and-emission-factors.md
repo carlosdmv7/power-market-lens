@@ -1,6 +1,6 @@
 # ADR-004 — Technology mapping and emission factors
 
-- **Status:** proposed (awaiting review)
+- **Status:** accepted (2026-11-15)
 - **Date:** 2026-10-20
 
 ## Context
@@ -69,6 +69,13 @@ of generation:
   - (b) add a lignite factor from a second source, dated and cited in the
     seed, which ends the "AR5 only" rule;
   - (c) show DE-LU's intensity as a range, using AR5's coal maximum (910).
+
+  **Decided 2026-11-15: (a).** One source for every factor keeps the
+  comparison across zones consistent and each number traceable to one
+  table. The understatement is not hidden: the mart reports the share of
+  each hour's generation that uses a proxy factor, and the app shows it next
+  to the intensity. (b) stays open for a later phase if a single, citable
+  lifecycle factor for lignite is adopted.
 - **Open-cycle gas** emits more than the combined-cycle median, so gas-heavy
   peaking hours are also understated. AR5 has no open-cycle row.
 - **Solar** uses utility-scale PV (48); rooftop is 41. ENTSO-E does not split
