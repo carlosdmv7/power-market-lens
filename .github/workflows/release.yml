@@ -1,0 +1,56 @@
+name: Release
+
+# Tags a release when a release PR lands on main (CONTRIBUTING.md, Releases).
+# The trigger is explicit: only a squash commit titled "chore(release): vX.Y.Z"
+# releases. Releasing whenever pyproject.toml holds an untagged version would
+# fire on the first merge after this workflow exists, before anyone decided to
+# release.
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Tag and publish the release
+    # Quoted: the ': ' inside the string is otherwise read as a YAML mapping.
+    if: "startsWith(github.event.head_commit.message, 'chore(release): v')"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write  # create the tag and the GitHub Release
+    steps:
+      - uses: actions/checkout@v7
+
+      # The commit subject and pyproject.toml must agree, and the tag must be
+      # new: a typo in the PR title should fail here, not publish a wrong tag.
+      - name: Check the version
+        id: version
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          subject="${MESSAGE%%$'\n'*}"
+          wanted="${subject#chore(release): v}"
+          wanted="${wanted%% *}"
+          actual="$(python3 -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          if [ "$wanted" != "$actual" ]; then
+            echo "::error::Commit says v$wanted but pyproject.toml has $actual"
+            exit 1
+          fi
+          if gh release view "v$actual" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/v$actual" >/dev/null; then
+            echo "::error::v$actual already exists"
+            exit 1
+          fi
+          echo "tag=v$actual" >> "$GITHUB_OUTPUT"
+
+      # --generate-notes lists the PR titles merged since the previous tag,
+      # which is why PR titles are checked in CI.
+      - name: Create the tag and the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" --generate-notes

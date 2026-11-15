@@ -79,6 +79,7 @@ Intraday or real-time markets, modelling national subsidies, any AI assistant (s
 - dbt project in `transform/`; `profiles.yml` is committed (no secrets: DuckDB reads `MOTHERDUCK_TOKEN` from the env).
   Targets: `dev` → `power_dev`, `ci` → `ci_*` schemas in `power_dev`, `prod` → `power_prod`.
 - Code in `src/power_market_lens/`, tests in `tests/` mirroring it.
-- Conventional commits; branch from fresh `main`; PR + green CI to merge.
+- Conventional commits (types and scopes in CONTRIBUTING.md); branch from fresh `main`; PR + green CI; squash merge, so the PR title is the commit on `main`.
+- Releases: `make release-pr BUMP=...` opens a `chore(release): vX.Y.Z` PR; merging it tags `main` (release workflow). One release per phase.
 - Decisions with trade-offs get an ADR in `docs/adr/`.
 - Verify changes by running them, not only by reading code or unit tests.
