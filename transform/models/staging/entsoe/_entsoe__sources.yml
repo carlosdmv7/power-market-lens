@@ -91,3 +91,42 @@ sources:
             description: End of the window the load requested, UTC (exclusive).
           - name: _run_id
             description: Prefect flow-run id of the load, or a label for manual runs.
+      - name: crossborder_flows
+        identifier: entsoe_crossborder_flows
+        description: >
+          Physical flows (document A11), one row per direction, interval and
+          load. Each direction of a border is its own non-negative series.
+        config:
+          loaded_at_field: period_start_utc
+          freshness:
+            warn_after: {count: 12, period: hour}
+            error_after: {count: 36, period: hour}
+        columns:
+          - name: out_zone_eic
+            description: EIC code of the zone the flow leaves.
+          - name: in_zone_eic
+            description: EIC code of the zone the flow enters.
+          - name: period_start_utc
+            description: Start of the interval, UTC.
+          - name: resolution_minutes
+            description: Length of the interval in minutes (60 on some borders, 15 on most).
+          - name: flow_mw
+            description: Average physical flow over the interval in this direction, MW; never negative.
+          - name: document_mrid
+            description: >-
+              Identifier of the ENTSO-E response the point came from. Regenerated on
+              every request, so it names a download, not a version of the data.
+          - name: document_created_at
+            description: >-
+              When ENTSO-E generated the response, UTC. The platform builds a document
+              per request, so this is the request time, not when the data was published.
+          - name: _loaded_at
+            description: When the loader appended the batch, UTC.
+          - name: _source
+            description: Source and document type, entsoe:A11.
+          - name: _window_start
+            description: Start of the window the load requested, UTC.
+          - name: _window_end
+            description: End of the window the load requested, UTC (exclusive).
+          - name: _run_id
+            description: Prefect flow-run id of the load, or a label for manual runs.
