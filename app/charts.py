@@ -14,7 +14,7 @@ import math
 import altair as alt
 from mix import GROUP_COLORS, GROUP_ORDER
 import pandas as pd
-from theme import INK_MUTED, PETROL_900, RUST_500, SURFACE, TEAL_500
+from theme import AMBER_500, INK, INK_MUTED, PETROL_900, RUST_500, SURFACE, TEAL_500
 
 TIME_FORMAT = "%a %d %b, %H:%M"
 # One tick per day: at the default density, day-formatted ticks every 12 hours
@@ -388,3 +388,161 @@ def price_ranking(prices: pd.DataFrame) -> alt.LayerChart:
         text=alt.Text("price_eur_mwh:Q", format=",.0f")
     )
     return alt.layer(bars, labels).properties(height=MAP_HEIGHT)
+
+
+# ── Household prices ──────────────────────────────────────────────────────────
+# A part keeps its colour in both breakdowns: taxes and levies teal, VAT rust.
+# The price before taxes (petrol) is what the yearly components split into
+# energy and supply (petrol) and network costs (amber). In stacking order,
+# every neighbouring pair passes the colour-vision and normal-vision
+# separation checks of the portfolio's chart guide; amber is under 3:1 on the
+# page, so every value is also in the tooltip and the data table.
+EUR_KWH = ",.3f"
+SPLIT_PARTS = [
+    ("price_excl_taxes_eur_kwh", "Before taxes", PETROL_900),
+    ("taxes_and_levies_eur_kwh", "Taxes and levies", TEAL_500),
+    ("vat_eur_kwh", "VAT", RUST_500),
+]
+COMPONENT_PARTS = [
+    ("energy_and_supply", "Energy and supply", PETROL_900),
+    ("network", "Network costs", AMBER_500),
+    ("taxes_and_levies", "Taxes and levies", TEAL_500),
+    ("vat", "VAT", RUST_500),
+]
+BAR_ROW = 46  # px per country
+COUNTRY_EXTENT = 96  # px for the country names
+
+
+def part_bars(
+    wide: pd.DataFrame, parts: list[tuple[str, str, str]], *, total_title: str
+) -> alt.LayerChart:
+    """One horizontal stacked bar per country: the parts of its price per kWh.
+
+    `wide` has `country_name`, one column per part and `total`. A negative
+    part (the Dutch energy-tax refund) stacks left of zero, so the bar's right
+    end is not the price: a dark tick marks the total, and the label sits by
+    whichever is further right. Countries are ranked by total, dearest first.
+    """
+    columns = [column for column, _, _ in parts]
+    labels = {column: label for column, label, _ in parts}
+    order = wide.sort_values("total", ascending=False)["country_name"].tolist()
+    positive_end = wide[columns].clip(lower=0).sum(axis=1)
+    wide = wide.assign(label_x=positive_end.where(positive_end > wide["total"], wide["total"]))
+    long = wide.melt(
+        id_vars="country_name", value_vars=columns, var_name="column", value_name="eur_kwh"
+    ).merge(wide, on="country_name")
+    long["part"] = long["column"].map(labels)
+    long["rank"] = long["column"].map({column: i for i, column in enumerate(columns)})
+
+    # A fixed label column: Vega measures the mono labels before the web font
+    # has loaded, under-reserves, and cut "Netherlands" to "etherlands".
+    y = alt.Y("country_name:N", sort=order, title=None, axis=alt.Axis(minExtent=COUNTRY_EXTENT))
+    # Room on the right for the total's label past the longest bar.
+    low = min(0.0, long["eur_kwh"].min() if not long.empty else 0.0)
+    high = (wide["label_x"].max() if not wide.empty else 0.0) * 1.05
+    x_scale = alt.Scale(domain=[low, high], nice=False)
+    x_axis = alt.Axis(format=".2f", tickCount=8)
+    tooltip = [alt.Tooltip("country_name:N", title="Country")]
+    tooltip += [
+        alt.Tooltip(f"{column}:Q", title=label, format=EUR_KWH) for column, label, _ in parts
+    ]
+    tooltip += [alt.Tooltip("total:Q", title=total_title, format=EUR_KWH)]
+    # A 1px surface stroke on each segment gives the gap between neighbours.
+    bars = (
+        alt.Chart(long)
+        .mark_bar(stroke=SURFACE, strokeWidth=1, cornerRadiusEnd=0, height={"band": 0.62})
+        .encode(
+            y=y,
+            x=alt.X("eur_kwh:Q", stack="zero", title="€/kWh", scale=x_scale, axis=x_axis),
+            color=alt.Color(
+                "part:N",
+                title=None,
+                scale=alt.Scale(
+                    domain=[label for _, label, _ in parts], range=[color for _, _, color in parts]
+                ),
+                sort=[label for _, label, _ in parts],
+            ),
+            order=alt.Order("rank:Q", sort="ascending"),
+            tooltip=tooltip,
+        )
+    )
+    base = alt.Chart(wide).encode(y=y)
+    total = base.mark_tick(color=INK, thickness=3, size=BAR_ROW * 0.78).encode(
+        x="total:Q", tooltip=tooltip[:1] + tooltip[-1:]
+    )
+    text = base.mark_text(align="left", dx=6, color=INK).encode(
+        x="label_x:Q", text=alt.Text("total:Q", format=EUR_KWH)
+    )
+    layers = [bars, total, text]
+    if (long["eur_kwh"] < 0).any():
+        layers.insert(
+            0, alt.Chart(pd.DataFrame({"x": [0]})).mark_rule(color=INK_MUTED).encode(x="x:Q")
+        )
+    # The label past the longest bar needs room in pixels, not in €/kWh: a
+    # share of the axis was not enough on a phone.
+    return alt.layer(*layers).properties(
+        height=BAR_ROW * len(order), padding={"left": 5, "top": 5, "bottom": 5, "right": 44}
+    )
+
+
+def price_history_chart(history: pd.DataFrame, highlight: str) -> alt.LayerChart:
+    """The final price per half-year since 2007, one line per country.
+
+    Six countries are more than the five categorical colours, so the chosen
+    country is drawn in petrol and named at its last point, the others thin
+    and muted; the hover names any line. Each half-year is drawn at its first day.
+    """
+    field = "price_incl_all_taxes_eur_kwh"
+    hover = alt.selection_point(
+        fields=["period_start_date"],
+        nearest=True,
+        on="pointerover",
+        clear="pointerout",
+        empty=False,
+    )
+    x = alt.X("period_start_date:T", title=None, axis=alt.Axis(format="%Y", tickCount="year"))
+    y = alt.Y(f"{field}:Q", title="€/kWh, all taxes included")
+    others = (
+        alt.Chart(history[history["country_name"] != highlight])
+        .mark_line(stroke=INK_MUTED, strokeWidth=1.5, opacity=0.45)
+        .encode(x=x, y=y, detail="country_name:N")
+    )
+    chosen = history[history["country_name"] == highlight]
+    line = alt.Chart(chosen).mark_line(stroke=PETROL_900, strokeWidth=2.5).encode(x=x, y=y)
+    last = chosen.loc[[chosen["period_start_date"].idxmax()]] if not chosen.empty else chosen
+    name = (
+        alt.Chart(last)
+        .mark_text(align="right", dy=-12, color=INK, fontWeight=600)
+        .encode(x=x, y=y, text="country_name:N")
+    )
+    # Hover: a rule at the nearest half-year and a tooltip per country there.
+    targets = (
+        alt.Chart(history)
+        .mark_point(opacity=0, size=160)
+        .encode(
+            x=x,
+            y=y,
+            tooltip=[
+                alt.Tooltip("country_name:N", title="Country"),
+                alt.Tooltip("period_code:N", title="Half-year"),
+                alt.Tooltip(f"{field}:Q", title="€/kWh", format=EUR_KWH),
+            ],
+        )
+        .add_params(hover)
+    )
+    rule = alt.Chart(history).mark_rule(color=INK_MUTED).encode(x=x).transform_filter(hover)
+    dots = (
+        alt.Chart(history)
+        .mark_point(filled=True, size=50, color=INK, stroke=SURFACE, strokeWidth=1.5)
+        .encode(x=x, y=y)
+        .transform_filter(hover)
+    )
+    layers = [others, line, name, rule, dots, targets]
+    if (history[field] < 0).any():
+        zero = (
+            alt.Chart(pd.DataFrame({"y": [0]}))
+            .mark_rule(color=INK_MUTED, strokeDash=[4, 3])
+            .encode(y="y:Q")
+        )
+        layers.insert(0, zero)
+    return alt.layer(*layers).properties(height=300)
