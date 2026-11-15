@@ -2,40 +2,56 @@ version: 2
 
 models:
   - name: dim_bidding_zone
+    config:
+      # The app reads this mart by column name and type: a change
+      # to either fails the build instead of the app.
+      contract:
+        enforced: true
     description: >
       One row per bidding zone, with the display names and country the app
       uses for its zone selector and labels. Mirrors the bidding_zones seed so
       the app reads marts only. Grain: zone.
     columns:
       - name: bidding_zone_eic
+        data_type: varchar
         description: EIC code of the bidding zone. The key.
         data_tests:
           - unique
           - not_null
       - name: zone_code
+        data_type: varchar
         description: Short zone label, e.g. ES, IT-CNOR. What the facts carry next to the EIC code.
         data_tests:
           - unique
           - not_null
       - name: zone_name
+        data_type: varchar
         description: Zone name for display, e.g. Italy Centre-North.
         data_tests:
           - unique
           - not_null
       - name: country_code
+        data_type: varchar
         description: ISO 3166-1 alpha-2 code of the zone's country; several zones share IT.
         data_tests:
           - not_null
       - name: country_name
+        data_type: varchar
         description: Country name for display, e.g. Italy.
         data_tests:
           - not_null
       - name: timezone
+        data_type: varchar
         description: IANA time zone of the zone's delivery day, e.g. Europe/Rome.
         data_tests:
           - not_null
 
   - name: fct_day_ahead_price_hourly
+    config:
+      # The app reads this mart by column name and type: a change
+      # to either fails the build instead of the app.
+      contract:
+        enforced: true
     description: >
       Hourly day-ahead price per bidding zone, keyed in UTC and labelled with
       the zone's local delivery date and hour (ADR-003). Since 2025-10-01 the
@@ -50,29 +66,36 @@ models:
             partition_by: bidding_zone_eic
     columns:
       - name: bidding_zone_eic
+        data_type: varchar
         description: EIC code of the bidding zone.
         data_tests:
           - not_null
       - name: zone_code
+        data_type: varchar
         description: Short zone label, e.g. ES.
         data_tests:
           # Null means the zone is ingested but missing from the bidding_zones seed.
           - not_null
       - name: hour_start_utc
+        data_type: timestamp with time zone
         description: Start of the delivery hour, UTC. The key; local columns are labels.
         data_tests:
           - not_null
       - name: delivery_date_local
+        data_type: date
         description: Delivery date in the zone's local time.
         data_tests:
           - not_null
       - name: delivery_hour_local
+        data_type: bigint
         description: Local hour of day, 0–23. Repeats 2 on the October DST change and skips it in March.
         data_tests:
           - not_null
       - name: utc_offset_minutes
+        data_type: integer
         description: Local time minus UTC at that hour, minutes (60 or 120 in Spain).
       - name: hours_in_delivery_day
+        data_type: integer
         description: Hours in the local delivery day, 23, 24 or 25; what the completeness test expects.
         data_tests:
           - accepted_values:
@@ -80,18 +103,24 @@ models:
                 values: [23, 24, 25]
                 quote: false
       - name: price_eur_mwh
+        data_type: double
         description: Hourly day-ahead price, EUR/MWh (mean of the hour's intervals).
         data_tests:
           - not_null
       - name: min_interval_price_eur_mwh
+        data_type: double
         description: Lowest quarter-hour (or hour) price within the hour, EUR/MWh.
       - name: max_interval_price_eur_mwh
+        data_type: double
         description: Highest quarter-hour (or hour) price within the hour, EUR/MWh.
       - name: resolution_minutes
+        data_type: smallint
         description: Native resolution the hour was built from (15 or 60).
       - name: n_intervals
+        data_type: bigint
         description: Number of intervals averaged into the hour.
       - name: is_complete_hour
+        data_type: boolean
         description: True when the intervals cover the whole hour.
         data_tests:
           - accepted_values:
@@ -101,11 +130,18 @@ models:
               config:
                 severity: warn
       - name: has_price_out_of_range
+        data_type: boolean
         description: True when any interval of the hour is outside the SDAC limits in force.
       - name: loaded_at
+        data_type: timestamp with time zone
         description: Latest load among the hour's intervals, UTC.
 
   - name: fct_generation_hourly
+    config:
+      # The app reads this mart by column name and type: a change
+      # to either fails the build instead of the app.
+      contract:
+        enforced: true
     description: >
       Hourly generation per bidding zone and production type (and pumping
       consumption where reported), keyed in UTC with local delivery date and
@@ -133,26 +169,33 @@ models:
             severity: warn
     columns:
       - name: bidding_zone_eic
+        data_type: varchar
         description: EIC code of the bidding zone.
         data_tests:
           - not_null
       - name: zone_code
+        data_type: varchar
         description: Short zone label, e.g. ES.
         data_tests:
           - not_null
       - name: hour_start_utc
+        data_type: timestamp with time zone
         description: Start of the hour, UTC.
         data_tests:
           - not_null
       - name: delivery_date_local
+        data_type: date
         description: Date in the zone's local time.
         data_tests:
           - not_null
       - name: delivery_hour_local
+        data_type: bigint
         description: Local hour of day, 0–23 (repeats or skips 2 on DST changes).
       - name: utc_offset_minutes
+        data_type: integer
         description: Local time minus UTC at that hour, minutes.
       - name: hours_in_delivery_day
+        data_type: integer
         description: Hours in the local day, 23, 24 or 25.
         data_tests:
           - accepted_values:
@@ -160,20 +203,24 @@ models:
                 values: [23, 24, 25]
                 quote: false
       - name: psr_type
+        data_type: varchar
         description: ENTSO-E production type code.
         data_tests:
           - not_null
       - name: psr_name
+        data_type: varchar
         description: Name of the production type.
         data_tests:
           # Null means a code missing from the entsoe_psr_types seed.
           - not_null
       - name: technology
+        data_type: varchar
         description: Short technology name from the technology_mapping seed, e.g. Wind onshore.
         data_tests:
           # Null means a code missing from the technology_mapping seed.
           - not_null
       - name: display_group
+        data_type: varchar
         description: >-
           The app's five generation groups (Nuclear, Fossil, Hydro & other,
           Solar, Wind), from the technology_mapping seed (ADR-004).
@@ -182,17 +229,27 @@ models:
               arguments:
                 values: [Nuclear, Fossil, Hydro & other, Solar, Wind]
       - name: generation_mw
+        data_type: double
         description: Mean generation over the hour, MW (= MWh over a complete hour).
       - name: consumption_mw
+        data_type: double
         description: Mean consumption by generation units (pumping), MW; null for most types.
       - name: resolution_minutes
+        data_type: smallint
         description: Finest native resolution among the hour's intervals.
       - name: n_generation_intervals
+        data_type: bigint
         description: Number of generation intervals averaged into the hour.
       - name: loaded_at
+        data_type: timestamp with time zone
         description: Latest load among the hour's intervals, UTC.
 
   - name: fct_generation_mix_hourly
+    config:
+      # The app reads this mart by column name and type: a change
+      # to either fails the build instead of the app.
+      contract:
+        enforced: true
     description: >
       Production-based renewable share, low-carbon share and lifecycle carbon
       intensity per zone and hour (ADR-004), from fct_generation_hourly, the
@@ -207,28 +264,37 @@ models:
             combination_of_columns: [bidding_zone_eic, hour_start_utc]
     columns:
       - name: bidding_zone_eic
+        data_type: varchar
         description: EIC code of the bidding zone.
         data_tests:
           - not_null
       - name: zone_code
+        data_type: varchar
         description: Short zone label, e.g. ES.
         data_tests:
           - not_null
       - name: hour_start_utc
+        data_type: timestamp with time zone
         description: Start of the hour, UTC.
         data_tests:
           - not_null
       - name: delivery_date_local
+        data_type: date
         description: Date in the zone's local time.
       - name: delivery_hour_local
+        data_type: bigint
         description: Local hour of day, 0–23.
       - name: utc_offset_minutes
+        data_type: integer
         description: Local time minus UTC at that hour, minutes.
       - name: hours_in_delivery_day
+        data_type: integer
         description: Hours in the local day, 23, 24 or 25.
       - name: production_mw
+        data_type: double
         description: Mean generation over the hour excluding storage, MW.
       - name: renewable_share
+        data_type: double
         description: Renewable share of production, 0–1.
         data_tests:
           - dbt_utils.accepted_range:
@@ -236,6 +302,7 @@ models:
                 min_value: 0
                 max_value: 1
       - name: low_carbon_share
+        data_type: double
         description: Renewable plus nuclear share of production, 0–1.
         data_tests:
           - dbt_utils.accepted_range:
@@ -243,6 +310,7 @@ models:
                 min_value: 0
                 max_value: 1
       - name: carbon_intensity_g_per_kwh
+        data_type: double
         description: >-
           Generation-weighted IPCC AR5 lifecycle median of the hour's production,
           gCO2eq/kWh. Bounded by the lowest and highest factor in the seed.
@@ -252,10 +320,13 @@ models:
                 min_value: 11
                 max_value: 820
       - name: proxy_factor_share
+        data_type: double
         description: Share of production whose factor is a stand-in (no AR5 row of its own), 0–1.
       - name: storage_discharge_mw
+        data_type: double
         description: Mean discharge of storage over the hour, MW; not part of production.
       - name: unfactored_mw
+        data_type: double
         description: Production with no emission factor, MW. Must stay zero.
         data_tests:
           - accepted_values:
@@ -263,9 +334,15 @@ models:
                 values: [0]
                 quote: false
       - name: loaded_at
+        data_type: timestamp with time zone
         description: Latest load among the hour's intervals, UTC.
 
   - name: fct_interchange_hourly
+    config:
+      # The app reads this mart by column name and type: a change
+      # to either fails the build instead of the app.
+      contract:
+        enforced: true
     description: >
       Hourly physical interchange of each modelled zone with each zone it
       borders, seen from the modelled zone: imports, exports and the net,
@@ -285,37 +362,47 @@ models:
             severity: warn
     columns:
       - name: bidding_zone_eic
+        data_type: varchar
         description: EIC code of the modelled zone whose point of view the row takes.
         data_tests:
           - not_null
       - name: zone_code
+        data_type: varchar
         description: Short label of the modelled zone, e.g. ES.
         data_tests:
           - not_null
       - name: counterpart_eic
+        data_type: varchar
         description: EIC code of the zone on the other side of the border.
         data_tests:
           - not_null
       - name: counterpart_code
+        data_type: varchar
         description: Short label of the counterpart, e.g. FR, CH.
         data_tests:
           # Null means a zone missing from both bidding_zones and neighbour_zones.
           - not_null
       - name: is_counterpart_modelled
+        data_type: boolean
         description: True when the counterpart is one of the modelled zones, so the border also appears from its side.
       - name: hour_start_utc
+        data_type: timestamp with time zone
         description: Start of the hour, UTC. The key; local columns are labels.
         data_tests:
           - not_null
       - name: delivery_date_local
+        data_type: date
         description: Date in the zone's local time.
         data_tests:
           - not_null
       - name: delivery_hour_local
+        data_type: bigint
         description: Local hour of day, 0–23 (repeats or skips 2 on DST changes).
       - name: utc_offset_minutes
+        data_type: integer
         description: Local time minus UTC at that hour, minutes.
       - name: hours_in_delivery_day
+        data_type: integer
         description: Hours in the local day, 23, 24 or 25.
         data_tests:
           - accepted_values:
@@ -323,16 +410,26 @@ models:
                 values: [23, 24, 25]
                 quote: false
       - name: import_mw
+        data_type: double
         description: Mean flow from the counterpart into the zone over the hour, MW; null if not published.
       - name: export_mw
+        data_type: double
         description: Mean flow from the zone into the counterpart over the hour, MW; null if not published.
       - name: net_import_mw
+        data_type: double
         description: Imports minus exports, MW; negative for a net exporter. Null unless both directions were published.
       - name: is_complete_hour
+        data_type: boolean
         description: True when both directions cover the whole hour.
       - name: loaded_at
+        data_type: timestamp with time zone
         description: Latest load among the hour's intervals, UTC.
   - name: fct_load_hourly
+    config:
+      # The app reads this mart by column name and type: a change
+      # to either fails the build instead of the app.
+      contract:
+        enforced: true
     description: >
       Hourly total load per bidding zone, actual and the TSO's day-ahead
       forecast, keyed in UTC with local delivery date and hour (ADR-003).
@@ -346,26 +443,33 @@ models:
             partition_by: bidding_zone_eic
     columns:
       - name: bidding_zone_eic
+        data_type: varchar
         description: EIC code of the bidding zone.
         data_tests:
           - not_null
       - name: zone_code
+        data_type: varchar
         description: Short zone label, e.g. ES.
         data_tests:
           - not_null
       - name: hour_start_utc
+        data_type: timestamp with time zone
         description: Start of the hour, UTC. The key; local columns are labels.
         data_tests:
           - not_null
       - name: delivery_date_local
+        data_type: date
         description: Date in the zone's local time.
         data_tests:
           - not_null
       - name: delivery_hour_local
+        data_type: bigint
         description: Local hour of day, 0–23 (repeats or skips 2 on DST changes).
       - name: utc_offset_minutes
+        data_type: integer
         description: Local time minus UTC at that hour, minutes.
       - name: hours_in_delivery_day
+        data_type: integer
         description: Hours in the local day, 23, 24 or 25.
         data_tests:
           - accepted_values:
@@ -373,6 +477,7 @@ models:
                 values: [23, 24, 25]
                 quote: false
       - name: actual_load_mw
+        data_type: double
         description: Mean actual total load over the hour, MW (= MWh over a complete hour).
         data_tests:
           # Actual load arrives within hours; older gaps are real gaps.
@@ -381,16 +486,26 @@ models:
                 severity: warn
                 where: "hour_start_utc < now() - interval 2 day"
       - name: forecast_load_mw
+        data_type: double
         description: Mean day-ahead forecast of total load over the hour, MW.
       - name: forecast_error_mw
+        data_type: double
         description: Forecast minus actual, MW; positive when the TSO expected more load.
       - name: resolution_minutes
+        data_type: smallint
         description: Finest native resolution among the hour's intervals.
       - name: n_actual_intervals
+        data_type: bigint
         description: Number of actual-load intervals averaged into the hour.
       - name: loaded_at
+        data_type: timestamp with time zone
         description: Latest load among the hour's intervals, UTC.
   - name: fct_day_ahead_price_quarter_hourly
+    config:
+      # The app reads this mart by column name and type: a change
+      # to either fails the build instead of the app.
+      contract:
+        enforced: true
     description: >
       Day-ahead price at the market's native 15-minute resolution (SDAC since
       2025-10-01), keyed in UTC and labelled with the zone's local delivery
@@ -408,21 +523,26 @@ models:
             intervals_per_hour: 4
     columns:
       - name: bidding_zone_eic
+        data_type: varchar
         description: EIC code of the bidding zone.
         data_tests:
           - not_null
       - name: zone_code
+        data_type: varchar
         description: Short zone label, e.g. ES.
         data_tests:
           # Null means the zone is ingested but missing from the bidding_zones seed.
           - not_null
       - name: period_start_utc
+        data_type: timestamp with time zone
         description: Start of the quarter-hour, UTC. The key; local columns are labels.
         data_tests:
           - not_null
       - name: period_end_utc
+        data_type: timestamp with time zone
         description: End of the quarter-hour, UTC (exclusive).
       - name: hour_start_utc
+        data_type: timestamp with time zone
         description: The UTC hour the quarter belongs to; joins to the hourly marts.
         data_tests:
           - not_null
@@ -431,14 +551,17 @@ models:
                 to: ref('fct_day_ahead_price_hourly')
                 field: hour_start_utc
       - name: delivery_date_local
+        data_type: date
         description: Delivery date in the zone's local time.
         data_tests:
           - not_null
       - name: delivery_hour_local
+        data_type: bigint
         description: Local hour of day, 0–23. Repeats 2 on the October DST change and skips it in March.
         data_tests:
           - not_null
       - name: quarter_of_hour
+        data_type: integer
         description: Which quarter of the local hour, 1–4 (1 starts at :00).
         data_tests:
           - accepted_values:
@@ -446,8 +569,10 @@ models:
                 values: [1, 2, 3, 4]
                 quote: false
       - name: utc_offset_minutes
+        data_type: integer
         description: Local time minus UTC at that quarter-hour, minutes (60 or 120 in Spain).
       - name: hours_in_delivery_day
+        data_type: integer
         description: Hours in the local delivery day, 23, 24 or 25.
         data_tests:
           - accepted_values:
@@ -455,12 +580,15 @@ models:
                 values: [23, 24, 25]
                 quote: false
       - name: price_eur_mwh
+        data_type: double
         description: Day-ahead clearing price of the quarter-hour, EUR/MWh, as published.
         data_tests:
           - not_null
       - name: is_price_out_of_range
+        data_type: boolean
         description: True when the price is outside the SDAC limits in force on its delivery day.
       - name: loaded_at
+        data_type: timestamp with time zone
         description: When the kept version was loaded, UTC.
 
 unit_tests:

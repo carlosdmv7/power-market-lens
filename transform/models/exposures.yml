@@ -1,0 +1,23 @@
+version: 2
+
+exposures:
+  - name: streamlit_app
+    label: Power Market Lens app
+    type: application
+    maturity: medium
+    url: https://power-market-lens-carlosdmv7.streamlit.app/
+    description: >
+      The public Streamlit app: a zone page (price, generation mix, demand
+      against forecast, carbon intensity) and a map page (one day's mean price
+      per zone with net cross-border flows). It reads these marts and nothing
+      else; tests/app/test_exposure.py keeps this list equal to the marts
+      app/data.py queries.
+    depends_on:
+      - ref('dim_bidding_zone')
+      - ref('fct_day_ahead_price_hourly')
+      - ref('fct_generation_hourly')
+      - ref('fct_generation_mix_hourly')
+      - ref('fct_interchange_hourly')
+      - ref('fct_load_hourly')
+    owner:
+      name: Carlos De Manuel
