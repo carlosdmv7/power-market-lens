@@ -1,9 +1,13 @@
 """Raw layer in MotherDuck: table definitions and append-only loads.
 
-Raw is append-only (ADR-003): every load inserts the rows it fetched, stamped
-with the same `_loaded_at`, its source and the window it asked for, and nothing
-is ever updated or deleted. Re-pulling a trailing window therefore stores each
-point once per pull, and staging keeps the latest version of each.
+Raw is append-only (ADR-003): a load inserts rows stamped with the same
+`_loaded_at`, its source and the window it asked for, and nothing is ever
+updated or deleted. Staging keeps the latest version of each point.
+
+Every run re-pulls a trailing week to catch revisions, and almost none of it
+has changed. For the ENTSO-E tables a load therefore appends only the points
+that are new, or whose values differ from the latest version already stored
+(ADR-011): raw still records every revision, without one copy per pull.
 
 `python -m power_market_lens.ingest.warehouse` creates the raw tables in the
 database for APP_ENV (power_dev by default). It is idempotent.
@@ -124,6 +128,36 @@ RAW_TABLES: dict[str, tuple[type[BaseModel], str]] = {
 
 METADATA_FIELDS = ("_loaded_at", "_source", "_window_start", "_window_end", "_run_id")
 
+# Per ENTSO-E table: the columns that identify a point (staging deduplicates
+# on the same ones; a test keeps them equal), and the values that make a
+# version of it. document_mrid and document_created_at are left out: ENTSO-E
+# issues both per request, not per revision. Six pulls of the same day carried
+# six ids and six creation times, and identical values (ADR-011).
+POINT_KEYS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "entsoe_day_ahead_prices": (
+        ("bidding_zone_eic", "period_start_utc", "resolution_minutes"),
+        ("price_eur_mwh", "currency", "price_unit"),
+    ),
+    "entsoe_generation_per_type": (
+        (
+            "bidding_zone_eic",
+            "psr_type",
+            "flow_direction",
+            "period_start_utc",
+            "resolution_minutes",
+        ),
+        ("quantity_mw",),
+    ),
+    "entsoe_total_load": (
+        ("bidding_zone_eic", "process_type", "period_start_utc", "resolution_minutes"),
+        ("load_mw",),
+    ),
+    "entsoe_crossborder_flows": (
+        ("out_zone_eic", "in_zone_eic", "period_start_utc", "resolution_minutes"),
+        ("flow_mw",),
+    ),
+}
+
 
 def connect(settings: Settings) -> duckdb.DuckDBPyConnection:
     """Open the MotherDuck database for this environment (power_dev / power_prod)."""
@@ -154,7 +188,11 @@ def append_rows(
     run_id: str,
     loaded_at: datetime | None = None,
 ) -> int:
-    """Append one batch to a raw table in a single INSERT; return the row count."""
+    """Append one batch to a raw table in a single INSERT; return the rows appended.
+
+    For a table in POINT_KEYS, only the rows that are new or changed since
+    the latest stored version are appended; for the others, every row.
+    """
     model, _ = RAW_TABLES[table]
     if not rows:
         log.info("%s.%s: nothing to append", RAW_SCHEMA, table)
@@ -169,15 +207,64 @@ def append_rows(
     batch["_window_end"] = window_end
     batch["_run_id"] = run_id
 
-    columns = ", ".join([*model.model_fields, *METADATA_FIELDS])
+    columns = [*model.model_fields, *METADATA_FIELDS]
     # One statement, so a batch lands completely or not at all.
     con.register("_batch", batch)
     try:
-        con.execute(f"insert into {RAW_SCHEMA}.{table} ({columns}) select {columns} from _batch")
+        if table in POINT_KEYS:
+            sql, params = _changed_rows_insert(table, columns, batch)
+        else:
+            listed = ", ".join(columns)
+            sql, params = (
+                f"insert into {RAW_SCHEMA}.{table} ({listed}) select {listed} from _batch",
+                [],
+            )
+        (appended,) = con.execute(sql, params).fetchone()
     finally:
         con.unregister("_batch")
-    log.info("%s.%s: appended %d rows", RAW_SCHEMA, table, len(batch))
-    return len(batch)
+    log.info(
+        "%s.%s: appended %d of %d rows (%d unchanged since the last load)",
+        RAW_SCHEMA,
+        table,
+        appended,
+        len(batch),
+        len(batch) - appended,
+    )
+    return appended
+
+
+def _changed_rows_insert(
+    table: str, columns: list[str], batch: pd.DataFrame
+) -> tuple[str, list[object]]:
+    """An INSERT of the batch rows whose point is new, or whose values differ
+    from the point's latest stored version.
+
+    The latest versions are read only where the batch lies: its zones (the
+    first key column) and its time span, bounds DuckDB can use to skip the
+    row groups of other loads instead of reading the whole table.
+    """
+    keys, values = POINT_KEYS[table]
+    scope = keys[0]
+    zones = sorted(batch[scope].unique())
+    first, last = batch["period_start_utc"].min(), batch["period_start_utc"].max()
+    sql = f"""
+        insert into {RAW_SCHEMA}.{table} ({", ".join(columns)})
+        select {", ".join(f"b.{c}" for c in columns)}
+        from _batch as b
+        left join (
+            select {", ".join([*keys, *values])}
+            from {RAW_SCHEMA}.{table}
+            where {scope} in ({", ".join("?" for _ in zones)})
+                and period_start_utc between ? and ?
+            qualify row_number() over (
+                partition by {", ".join(keys)} order by _loaded_at desc
+            ) = 1
+        ) as stored
+            on {" and ".join(f"b.{k} = stored.{k}" for k in keys)}
+        where stored.{scope} is null
+            or {" or ".join(f"b.{v} is distinct from stored.{v}" for v in values)}
+    """  # noqa: S608 - identifiers come from POINT_KEYS, values are parameters
+    return sql, [*zones, first.to_pydatetime(), last.to_pydatetime()]
 
 
 if __name__ == "__main__":

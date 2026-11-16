@@ -64,7 +64,8 @@ Electricity data is a minefield of time handling, and the mistakes are silent:
   re-pulls). Columnar compression keeps this cheap at this volume, but it is
   the main driver of storage on the MotherDuck free plan (ADR-001). If it
   becomes a problem, the loader can append only the points whose value changed,
-  without giving up append-only.
+  without giving up append-only. *Done in ADR-011 (2026-11-16), when it became
+  a compute problem.*
 - Staging is a little more expensive (a window function per source), in
   exchange for full auditability.
 - Hourly averages of quarter-hours are a convention, not a market price. The
