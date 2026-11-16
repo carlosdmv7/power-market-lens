@@ -94,7 +94,9 @@ def test_daily_refresh_loads_both_entities_then_builds_dbt(wired):
     assert run_ids[0][0] != "manual"  # the Prefect flow-run id
 
 
-def test_backfill_twice_appends_twice(wired):
+def test_repeating_a_backfill_stores_nothing_twice(wired):
+    # Backfills are safe to repeat (runbook): the second finds every point
+    # unchanged and appends nothing (ADR-011).
     database, _ = wired
 
     backfill(date(2025, 10, 25), date(2025, 10, 26), zones=["ES"])
@@ -107,7 +109,7 @@ def test_backfill_twice_appends_twice(wired):
         )
         .fetchone()
     )
-    assert (total, distinct_points) == (200, 100)
+    assert (total, distinct_points) == (100, 100)
 
 
 def test_a_failed_load_does_not_stop_the_others(wired, monkeypatch):

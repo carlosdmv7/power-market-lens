@@ -101,7 +101,8 @@ Prod is written only by the Pipeline workflow on `main`. Never run a flow or
   `-f zones="NL PT"`.
 
 Backfills are safe to repeat: raw is append-only and staging keeps the latest
-load of each interval, so loading a range twice changes nothing downstream.
+load of each interval, so loading a range twice changes nothing downstream. A
+repeat appends only points that are new or were revised since (ADR-011).
 
 ## Closing the incident
 

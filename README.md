@@ -104,8 +104,11 @@ flowchart LR
 ### Decisions worth defending
 
 - **Raw is append-only.** Every run re-pulls the last 7 days to pick up publisher
-  revisions, and staging keeps the latest load of each interval. Re-running a load changes
-  nothing downstream; this was tested on real data by loading the same 90 days twice.
+  revisions, and staging keeps the latest load of each interval. A load stores a point
+  again only when its value changed, because ENTSO-E's document ids change on every
+  request even when the data does not
+  ([ADR-011](docs/adr/0011-append-only-what-changed.md)). Re-running a load changes
+  nothing downstream.
 - **Time is handled in one place.** UTC keys, and a single macro for local columns with
   explicit `AT TIME ZONE`. Every dbt target pins the session to UTC, because MotherDuck
   otherwise inherits the machine's zone (Madrid on a laptop, UTC on a runner)
@@ -163,12 +166,14 @@ Everything runs on free tiers. Measured on 2026-11-15:
 | Prefect Cloud | Free tier, a small deployment quota shared across projects | Run history only; zero deployments (ADR-002) |
 | Streamlit Community Cloud | Public apps; an idle app goes to sleep | The app wakes on the first visit, which takes a few seconds |
 
-What grows is raw. Every run re-pulls the last seven days, so a normal day
-appends about 345,000 rows across the four raw tables, most of them copies of
-points already stored. At that rate storage stays far below the 10 GB for
-years, but staging re-ranks the whole of raw on every build, so build time
-and compute grow with it. Appending only rows that changed is the planned
-fix ([review](docs/review-2026-11.md), proposal 7.1).
+What grows is raw, and compute is the limit that binds first. MotherDuck reported
+its daily compute limit on 2026-11-15 and 2026-11-16, because staging re-ranks the
+whole of raw on every build. Until 2026-11-16 every run re-pulled seven days and
+appended all of it, about 345,000 rows a day, nearly all copies of points already
+stored. Raw generation held 17.5 million rows for 3.6 million hourly mart rows.
+Since [ADR-011](docs/adr/0011-append-only-what-changed.md) a run appends only new
+and revised points, about one day's worth. The copies already stored stay until
+someone decides to remove them.
 
 ## Quickstart
 

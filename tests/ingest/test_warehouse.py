@@ -1,5 +1,6 @@
 from datetime import UTC, datetime
 from pathlib import Path
+import re
 import threading
 
 import duckdb
@@ -12,9 +13,11 @@ from power_market_lens.ingest.jobs import (
     load_day_ahead_prices,
     load_generation_per_type,
 )
+from power_market_lens.ingest.models import DayAheadPriceRow
 from power_market_lens.ingest.parsers import parse_generation_per_type
 from power_market_lens.ingest.warehouse import (
     METADATA_FIELDS,
+    POINT_KEYS,
     RAW_TABLES,
     append_rows,
     connect,
@@ -107,20 +110,100 @@ def test_rejects_rows_of_the_wrong_entity(con):
         append_rows(con, "entsoe_day_ahead_prices", rows, **WINDOW)
 
 
-def test_reloading_a_window_appends_never_updates(con):
-    # Append-only (ADR-003): a re-pull adds a second copy; staging dedups it.
+def test_reloading_an_unchanged_window_appends_nothing(con):
+    # ADR-011: a re-pull that brings no revision stores no second copy.
     client = client_replaying("synthetic_prices_a03_15min_dst_autumn.xml")
     zone = get_zone("ES")
     start, end = datetime(2025, 10, 25, 22, tzinfo=UTC), datetime(2025, 10, 26, 23, tzinfo=UTC)
 
-    load_day_ahead_prices(client, con, zone, start, end, run_id="first")
-    load_day_ahead_prices(client, con, zone, start, end, run_id="second")
+    first = load_day_ahead_prices(client, con, zone, start, end, run_id="first")
+    second = load_day_ahead_prices(client, con, zone, start, end, run_id="second")
 
     total, distinct_points, runs = con.execute(
         "select count(*), count(distinct (period_start_utc, resolution_minutes)), "
         "count(distinct _run_id) from raw.entsoe_day_ahead_prices"
     ).fetchone()
-    assert (total, distinct_points, runs) == (200, 100, 2)
+    assert (first, second) == (100, 0)
+    assert (total, distinct_points, runs) == (100, 100, 1)
+
+
+def _price(hour: int, value: float, *, request: str = "a", zone: str = "ES") -> DayAheadPriceRow:
+    """A price point as a request returns it; `request` stands for the id and
+    creation time ENTSO-E stamps on every response."""
+    return DayAheadPriceRow(
+        bidding_zone_eic=get_zone(zone).eic,
+        period_start_utc=datetime(2026, 7, 1, hour, tzinfo=UTC),
+        resolution_minutes=15,
+        price_eur_mwh=value,
+        currency="EUR",
+        price_unit="MWH",
+        document_mrid=f"mrid-{request}",
+        document_created_at=datetime(2026, 7, 2, ord(request) % 24, tzinfo=UTC),
+    )
+
+
+def _load(con, rows, run: str) -> int:
+    return append_rows(
+        con,
+        "entsoe_day_ahead_prices",
+        rows,
+        loaded_at=datetime(2026, 7, 2, 1 + ord(run) % 20, tzinfo=UTC),
+        **{**WINDOW, "run_id": run},
+    )
+
+
+def _stored(con) -> list[tuple]:
+    return con.execute(
+        "select hour(period_start_utc at time zone 'UTC'), price_eur_mwh, _run_id "
+        "from raw.entsoe_day_ahead_prices order by _loaded_at, period_start_utc"
+    ).fetchall()
+
+
+def test_a_new_request_id_alone_is_not_a_revision(con):
+    _load(con, [_price(10, 50.0, request="a")], run="a")
+
+    assert _load(con, [_price(10, 50.0, request="b")], run="b") == 0
+    assert _stored(con) == [(10, 50.0, "a")]
+
+
+def test_only_the_revised_and_the_new_points_are_appended(con):
+    _load(con, [_price(10, 50.0), _price(11, 60.0)], run="a")
+
+    # 10:00 unchanged, 11:00 revised, 12:00 published late.
+    appended = _load(con, [_price(10, 50.0), _price(11, 61.5), _price(12, 70.0)], run="b")
+
+    assert appended == 2
+    assert _stored(con) == [(10, 50.0, "a"), (11, 60.0, "a"), (11, 61.5, "b"), (12, 70.0, "b")]
+
+
+def test_a_value_that_returns_is_compared_with_the_latest_version_only(con):
+    # 60 → 61.5 → 60: the third load differs from the latest version, so it is
+    # stored, and staging's latest version is 60 again.
+    _load(con, [_price(11, 60.0)], run="a")
+    _load(con, [_price(11, 61.5)], run="b")
+
+    assert _load(con, [_price(11, 60.0)], run="c") == 1
+    assert [row[2] for row in _stored(con)] == ["a", "b", "c"]
+
+
+def test_the_same_point_of_another_zone_is_a_different_point(con):
+    _load(con, [_price(10, 50.0, zone="ES")], run="a")
+
+    assert _load(con, [_price(10, 50.0, zone="PT")], run="b") == 1
+
+
+def test_point_keys_are_the_columns_staging_deduplicates_on():
+    # If they drifted apart, a load could skip a row that staging would treat
+    # as a different point, or store copies staging folds together.
+    staging = Path(__file__).parents[2] / "transform" / "models" / "staging" / "entsoe"
+    for table, (keys, values) in POINT_KEYS.items():
+        sql = (staging / f"stg_{table.replace('entsoe_', 'entsoe__')}.sql").read_text()
+        partition = re.search(r"partition by\s+(.+?)\s+order by", sql, re.DOTALL)
+        assert partition, table
+        assert [c.strip() for c in partition.group(1).split(",")] == list(keys), table
+        model, _ = RAW_TABLES[table]
+        compared = set(keys) | set(values) | {"document_mrid", "document_created_at"}
+        assert compared == set(model.model_fields), table  # every other column is compared
 
 
 def test_generation_job_tags_its_source(con):
