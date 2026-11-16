@@ -167,12 +167,15 @@ Everything runs on free tiers. Measured on 2026-11-15:
 | Streamlit Community Cloud | Public apps; an idle app goes to sleep | The app wakes on the first visit, which takes a few seconds |
 
 What grows is raw, and compute is the limit that binds first. MotherDuck reported
-its daily compute limit on 2026-11-15 and 2026-11-16, because staging re-ranks the
-whole of raw on every build. Until 2026-11-16 every run re-pulled seven days and
-appended all of it, about 345,000 rows a day, nearly all copies of points already
-stored. Raw generation held 17.5 million rows for 3.6 million hourly mart rows.
-Since [ADR-011](docs/adr/0011-append-only-what-changed.md) a run appends only new
-and revised points, about one day's worth. The copies already stored stay until
+its daily compute limit on 2026-11-15 and 2026-11-16. The account is shared, so
+that is everything run that day, not this pipeline alone, and past the limit
+queries slow down: a build that took 39 minutes of node time at the limit took 5.7
+the same evening without it. Until 2026-11-16 every run re-pulled seven days and
+appended all of it, nearly all copies of points already stored. Raw generation
+held 17.5 million rows for 3.6 million hourly mart rows, and staging ranks all of
+them on every build. Since [ADR-011](docs/adr/0011-append-only-what-changed.md) a
+run appends only new and revised points: 23,070 rows on its first prod run,
+against 163,786 the night before. The copies already stored stay until
 someone decides to remove them.
 
 ## Quickstart
