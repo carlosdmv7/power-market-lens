@@ -138,6 +138,24 @@ After every daily build, `dbt source freshness` checks the newest interval ENTSO
 delivered. A run that succeeds but brings nothing new turns the pipeline red once the data
 is 36 hours old, and logs a warning after 12.
 
+### Metrics, defined once
+
+The headline metrics live in a MetricFlow semantic layer
+([`transform/models/semantic/`](transform/models/semantic/_semantic__models.yml)):
+average day-ahead price, price spread, hours at or below zero, production, renewable and
+low-carbon share, and carbon intensity. Any of them can be queried at any grain and by any
+zone attribute:
+
+```bash
+cd transform && uv run mf query --metrics renewable_share,carbon_intensity_g_per_kwh \
+  --group-by metric_time__month,zone__country_name
+```
+
+Shares and intensities are ratios of sums, weighted by production, never averages of
+hourly ratios. For Spain in September 2026 the difference is visible: renewables were
+52.6% of production, while the mean of the hourly shares is 49.1%, because a quiet night
+counts as much as a busy afternoon. `metric_time` is UTC.
+
 ### When it breaks
 
 In November 2026 an expired ENTSO-E token left prod stale for eight days without one red

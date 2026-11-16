@@ -1,0 +1,186 @@
+version: 2
+
+# The semantic layer (CLAUDE.md: MetricFlow for metric definitions). Each
+# metric is defined once, here, over the marts; `mf query` computes it at any
+# grain (hour to year) and by any zone attribute. The app keeps reading the
+# materialised marts.
+#
+# Shares and intensities are ratios of sums, never averages of hourly ratios:
+# averaging hourly shares would weigh a quiet night like a peak hour.
+
+models:
+  - name: metricflow_time_spine_hour
+    description: >
+      One row per UTC hour from 2024 to 2029: the time spine MetricFlow joins
+      metrics to. Grain: UTC hour.
+    time_spine:
+      standard_granularity_column: hour_start_utc
+    columns:
+      - name: hour_start_utc
+        description: Start of the hour, UTC.
+        granularity: hour
+        data_tests:
+          - unique
+          - not_null
+
+semantic_models:
+  - name: bidding_zones
+    description: The bidding zones, to group any metric by zone, country or name.
+    model: ref('dim_bidding_zone')
+    entities:
+      - name: zone
+        type: primary
+        expr: bidding_zone_eic
+    dimensions:
+      - name: zone_code
+        type: categorical
+      - name: zone_name
+        type: categorical
+      - name: country_name
+        type: categorical
+
+  - name: day_ahead_prices
+    description: Hourly day-ahead prices per zone (the mean of the hour's quarter-hours since October 2025).
+    model: ref('fct_day_ahead_price_hourly')
+    # The grain is zone × hour; it has no single key column to name as one.
+    primary_entity: zone_price_hour
+    defaults:
+      agg_time_dimension: hour_start_utc
+    entities:
+      - name: zone
+        type: foreign
+        expr: bidding_zone_eic
+    dimensions:
+      - name: hour_start_utc
+        type: time
+        type_params:
+          time_granularity: hour
+      - name: delivery_hour_local
+        type: categorical
+    measures:
+      - name: price_eur_mwh_avg
+        description: Mean of the hourly prices, EUR/MWh.
+        agg: average
+        expr: price_eur_mwh
+      - name: price_eur_mwh_max
+        agg: max
+        expr: price_eur_mwh
+      - name: price_eur_mwh_min
+        agg: min
+        expr: price_eur_mwh
+      - name: price_hours
+        description: Hours with a price.
+        agg: sum
+        expr: "1"
+      - name: non_positive_price_hours
+        description: Hours priced at or below zero.
+        agg: sum
+        expr: case when price_eur_mwh <= 0 then 1 else 0 end
+
+  - name: generation_mix
+    description: >
+      Hourly production per zone excluding storage, with its renewable,
+      low-carbon and lifecycle-emission parts (ADR-004).
+    model: ref('fct_generation_mix_hourly')
+    primary_entity: zone_mix_hour
+    defaults:
+      agg_time_dimension: hour_start_utc
+    entities:
+      - name: zone
+        type: foreign
+        expr: bidding_zone_eic
+    dimensions:
+      - name: hour_start_utc
+        type: time
+        type_params:
+          time_granularity: hour
+    measures:
+      # An hour's mean power in MW is its energy in MWh.
+      - name: production_mwh
+        description: Production excluding storage, MWh.
+        agg: sum
+        expr: production_mw
+      - name: renewable_mwh
+        agg: sum
+        expr: renewable_share * production_mw
+        create_metric: true
+      - name: low_carbon_mwh
+        agg: sum
+        expr: low_carbon_share * production_mw
+        create_metric: true
+      # g/kWh × MWh = kg, so this sum over production in MWh is again g/kWh.
+      - name: lifecycle_emissions_kg
+        description: Lifecycle emissions of production, kgCO2eq.
+        agg: sum
+        expr: carbon_intensity_g_per_kwh * production_mw
+        create_metric: true
+
+metrics:
+  - name: average_day_ahead_price
+    label: Average day-ahead price (EUR/MWh)
+    description: Unweighted mean of the hourly day-ahead prices in the period.
+    type: simple
+    type_params:
+      measure: price_eur_mwh_avg
+
+  - name: max_day_ahead_price
+    label: Highest hourly day-ahead price (EUR/MWh)
+    type: simple
+    type_params:
+      measure: price_eur_mwh_max
+
+  - name: min_day_ahead_price
+    label: Lowest hourly day-ahead price (EUR/MWh)
+    type: simple
+    type_params:
+      measure: price_eur_mwh_min
+
+  - name: day_ahead_price_spread
+    label: Day-ahead price spread (EUR/MWh)
+    description: >
+      Highest minus lowest hourly price in the period: what a battery could
+      earn per MWh moved from the cheapest hour to the dearest, before losses.
+    type: derived
+    type_params:
+      expr: max_price - min_price
+      metrics:
+        - name: max_day_ahead_price
+          alias: max_price
+        - name: min_day_ahead_price
+          alias: min_price
+
+  - name: non_positive_price_hours
+    label: Hours at or below zero
+    type: simple
+    type_params:
+      measure: non_positive_price_hours
+
+  - name: production_mwh
+    label: Production excluding storage (MWh)
+    type: simple
+    type_params:
+      measure: production_mwh
+
+  - name: renewable_share
+    label: Renewable share of production
+    description: Renewable production over all production in the period, 0–1.
+    type: ratio
+    type_params:
+      numerator: renewable_mwh
+      denominator: production_mwh
+
+  - name: low_carbon_share
+    label: Low-carbon share of production
+    description: Renewable and nuclear production over all production, 0–1.
+    type: ratio
+    type_params:
+      numerator: low_carbon_mwh
+      denominator: production_mwh
+
+  - name: carbon_intensity_g_per_kwh
+    label: Carbon intensity of production (gCO2eq/kWh)
+    description: Lifecycle emissions over production in the period, production-based (ADR-004).
+    type: ratio
+    type_params:
+      numerator: lifecycle_emissions_kg
+      denominator: production_mwh

@@ -34,6 +34,11 @@ models:
       # whole lineage.
       +schema: marts
       +materialized: table
+    semantic:
+      # MetricFlow's semantic models and metrics are YAML over the marts; the
+      # only model here is the time spine MetricFlow joins metrics to.
+      +schema: semantic
+      +materialized: table
 
 seeds:
   power_market_lens:
