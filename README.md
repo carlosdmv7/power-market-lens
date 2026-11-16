@@ -121,6 +121,13 @@ flowchart LR
   `main`. CI builds every pull request in its own `ci_*` schemas. The history since
   January 2024 was backfilled through the same workflow, one quarter per run, so the
   backfill and the daily load share one code path.
+- **Unusual hours, not a blackout probability.** Hotelling T² and Q over nine variables
+  per zone (load, its forecast error, generation by group, net imports, price) flag the
+  hours furthest from the previous four weeks, and name the variables responsible. On
+  11 November 2026 it points at Red Eléctrica's load forecast, 8% too high all morning. A
+  blackout probability was rejected on evidence: the same method finds nothing unusual
+  in the hours before the Iberian blackout of 28 April 2025
+  ([ADR-008](docs/adr/0008-unusual-system-conditions-monitor.md)).
 
 ### Data quality
 
@@ -212,8 +219,8 @@ docs/adr/                architecture decision records
 |---|---|
 | 0 (done) | Foundations, and a Spain-only slice: day-ahead prices and generation, loaded daily |
 | 1 (done) | All bidding zones, load, cross-border flows, technology mapping and emission factors, a 2–3 year backfill; map and zone-mix pages ([summary](docs/phase-1-summary.md)) |
-| **2 (next)** | MetricFlow metrics (renewable share, carbon intensity, average price, spread); household price composition from Eurostat and the Spanish PVPC from ESIOS |
-| 3 | Day-ahead price forecast for Spain: leakage-safe features, rolling-origin backtests against a naive baseline, prediction intervals, SHAP drivers; a monitor of unusual system conditions per zone (PCA, Hotelling T² and Q, [ADR-008](docs/adr/0008-unusual-system-conditions-monitor.md)) |
+| **2 (in progress)** | Household price composition from Eurostat (done: the Households page); MetricFlow metrics: renewable share, carbon intensity, average price, spread; the Spanish PVPC from ESIOS (needs an API token) |
+| 3 | Day-ahead price forecast for Spain: leakage-safe features, rolling-origin backtests against a naive baseline, prediction intervals, SHAP drivers. The monitor of unusual system conditions planned here ([ADR-008](docs/adr/0008-unusual-system-conditions-monitor.md)) was built ahead of the phase and is on the zone page |
 | 4 | Slim CI with deferral to the prod manifest, dbt docs on GitHub Pages, a case study |
 
 ## Limitations

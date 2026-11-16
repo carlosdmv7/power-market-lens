@@ -14,7 +14,7 @@ from datetime import UTC, date, datetime
 from prefect import flow, get_run_logger
 
 from power_market_lens.config import load_settings
-from power_market_lens.flows.tasks import dbt_build, load_zones, raise_for_failed
+from power_market_lens.flows.tasks import dbt_build, load_zones, raise_for_failed, run_monitor
 from power_market_lens.flows.windows import backfill_windows
 from power_market_lens.zones import ZONES
 
@@ -28,6 +28,7 @@ def backfill(start_date: date, end_date: date, zones: list[str] | None = None) -
 
     counts, failed = load_zones(zones or sorted(ZONES), windows)
     dbt_build(settings.app_env)
+    failed += run_monitor()  # the monitor scores the whole history (ADR-008)
     raise_for_failed(failed)
     return counts
 

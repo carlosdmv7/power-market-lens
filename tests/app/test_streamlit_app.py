@@ -80,6 +80,33 @@ def add_households(path: Path) -> None:
     con.close()
 
 
+def add_monitor(path: Path) -> None:
+    """The monitor's table: every priced hour unremarkable, except a three-hour
+    episode in Spain (16 Oct, 06:00–08:00 UTC) when nuclear dropped."""
+    con = duckdb.connect(path)
+    con.execute("create schema monitor")
+    con.execute(
+        """
+        create table monitor.system_conditions_hourly as
+        select zone_code, hour_start_utc, delivery_date_local, utc_offset_minutes,
+               case when unusual then 2.5 + hour(hour_start_utc at time zone 'UTC') - 6
+                    else 0.3 end as unusualness,
+               unusual as is_unusual, 'T2' as statistic,
+               case when unusual then 'nuclear_mw' else 'wind_mw' end as driver_1,
+               case when unusual then -8.0 else 0.5 end as driver_1_z,
+               'forecast_error_mw' as driver_2, 3.0 as driver_2_z,
+               'price_eur_mwh' as driver_3, 0.2 as driver_3_z
+        from (
+            select *, zone_code = 'ES'
+                and hour_start_utc between timestamptz '2026-10-16 06:00:00+00'
+                and timestamptz '2026-10-16 08:00:00+00' as unusual
+            from marts.fct_day_ahead_price_hourly
+        )
+        """
+    )
+    con.close()
+
+
 def make_warehouse(path: Path, with_data: bool | None) -> None:
     """with_data None: a database where dbt has never built the marts."""
     con = duckdb.connect(path)
@@ -180,14 +207,20 @@ def run_page(tmp_path, monkeypatch):
         interchange: bool = False,
         noisy_load: bool = False,
         households: bool = False,
+        monitor: bool = False,
         query: dict[str, str] | None = None,
     ) -> AppTest:
-        warehouse = tmp_path / f"{with_data}-{zone}-{interchange}-{noisy_load}-{households}.duckdb"
+        warehouse = (
+            tmp_path
+            / f"{with_data}-{zone}-{interchange}-{noisy_load}-{households}-{monitor}.duckdb"
+        )
         make_warehouse(warehouse, with_data)
         if interchange:
             add_interchange(warehouse)
         if households:
             add_households(warehouse)
+        if monitor:
+            add_monitor(warehouse)
         if noisy_load:
             # DE-LU's forecast alternates 15% above and below the actual.
             con = duckdb.connect(warehouse)
@@ -401,6 +434,35 @@ def test_a_large_but_two_sided_forecast_miss_is_not_a_definition_gap(run_page):
     at = run_page(with_data=True, zone="DE-LU", noisy_load=True)
 
     assert not any("do not cover the same consumption" in c.value for c in at.caption)
+
+
+def test_unusual_hours_are_drawn_and_grouped_into_episodes(run_page):
+    at = run_page(with_data=True, monitor=True)
+
+    assert not at.exception
+    assert not at.error
+    assert len(at.get("vega_lite_chart")) == 5  # price, mix, load, intensity, unusual hours
+    assert any("not a reliability or security" in c.value for c in at.caption)
+    episodes = at.dataframe[0].value
+    assert len(episodes) == 1  # three consecutive hours, one episode
+    assert episodes["Hours"].iloc[0] == 3
+    assert episodes["Peak (× limit)"].iloc[0] == 4.5
+    assert episodes["What stood out at the peak"].iloc[0] == (
+        "Nuclear far below usual, load forecast error above usual"
+    )
+
+
+def test_a_zone_with_no_unusual_hour_says_so(run_page):
+    at = run_page(with_data=True, monitor=True, zone="PT")
+
+    assert any("No hour in these dates was beyond the control limit" in c.value for c in at.caption)
+
+
+def test_without_the_monitor_table_the_section_is_left_out(run_page):
+    at = run_page(with_data=True)
+
+    assert not any("UNUSUAL HOURS" in m.value for m in at.markdown)
+    assert len(at.get("vega_lite_chart")) == 4
 
 
 HOUSEHOLDS = "views/households.py"

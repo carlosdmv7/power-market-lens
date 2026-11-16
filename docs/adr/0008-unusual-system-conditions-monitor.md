@@ -1,6 +1,6 @@
 # ADR-008 — A monitor of unusual system conditions, not a blackout probability
 
-- **Status:** accepted (2026-11-15)
+- **Status:** accepted (2026-11-15); implemented 2026-11-16, ahead of Phase 3 at the owner's request
 - **Date:** 2026-11-15
 
 ## Context
@@ -128,3 +128,39 @@ never present it as a blackout probability.
   std is small. The floor limits it; per-variable weights may be needed.
 - 2024 as the reference year must be revisited once the history is long
   enough for a rolling reference (for example, the previous 12 months).
+
+## Implementation (2026-11-16)
+
+- **Code:** `power_market_lens.monitor.conditions` (the method, pure numpy and
+  pandas) and `power_market_lens.monitor.job` (read the marts, write the
+  table).
+- **When it runs:** the daily and backfill flows run it after `dbt build`. A
+  failure is recorded and fails the run at the end, like a failed load; it
+  never holds back the freshness check.
+- **Output:** `monitor.system_conditions_hourly`, one row per zone and hour:
+  - `t2`, `q`, their limits, `unusualness` (the larger of T² and Q over its
+    limit, so 1 is the control limit) and `is_unusual`;
+  - the statistic that explains the hour;
+  - the top three variables, with their z-scores and their share of that
+    statistic.
+- **Recomputed in full on every run** and replaced in one statement. The
+  result is a pure function of the marts, so there is no state to drift. On
+  prod: 302,403 hours of features read in 2.5 s, 12 zones scored in 1.3 s.
+- **Choices made while building it:**
+  - **An hour is explained by the statistic further beyond its limit.** T²
+    contributions when T² is, squared residuals when Q is: an hour flagged
+    only by Q is still explained.
+  - **A variable a zone reports in fewer than half its hours is left out for
+    that zone.** The prototype instead dropped every hour it was missing
+    from. DE-LU now runs on 8 variables, because Germany has no nuclear.
+  - **Episodes are grouped in the app.** Consecutive unusual hours are shown
+    as one episode, with its peak and what stood out.
+- **Verified on prod's marts, read-only:**
+  - The prototype's flag rates hold. ES is 1.7% in the reference year and
+    3.9% since 2025; DE-LU 1.8% and 2.2%; FR 1.7% and 1.6%.
+  - Spain, 11 November 2026: one episode from 05:00 to 16:00 local. The load
+    forecast error leads until 10:00 (z up to +9.9).
+  - None of the hours published on 28 April 2025 before the blackout is
+    flagged.
+- **Pending, for review:** a dbt source for the table with key tests, and the
+  app's exposure depending on it.

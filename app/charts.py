@@ -117,6 +117,55 @@ def intensity_chart(
     return alt.layer(*layers).properties(height=220)
 
 
+def conditions_chart(
+    conditions: pd.DataFrame, domain: tuple[pd.Timestamp, pd.Timestamp]
+) -> alt.LayerChart:
+    """How unusual each hour was (ADR-008), on the shared time axis.
+
+    1 is the control limit: a dashed rule. The line is muted ink, because most
+    hours are unremarkable; hours beyond the limit are marked in rust, the one
+    colour the eye should go to. The hover names what stood out.
+    """
+    data = conditions.groupby("time", as_index=False).agg(
+        unusualness=("unusualness", "max"),
+        is_unusual=("is_unusual", "max"),
+        what=("what", "first"),
+    )
+    hover = alt.selection_point(
+        fields=["time"], nearest=True, on="pointerover", clear="pointerout", empty=False
+    )
+    x = time_x(domain, title=None, axis=DAY_AXIS)
+    y = alt.Y("unusualness:Q", title="× control limit", axis=y_axis())
+    base = alt.Chart(data).encode(x=x)
+    limit = (
+        alt.Chart(pd.DataFrame({"y": [1.0]}))
+        .mark_rule(color=INK_MUTED, strokeDash=[4, 3])
+        .encode(y="y:Q")
+    )
+    line = base.mark_line(stroke=INK_MUTED, strokeWidth=1.5, clip=True).encode(y=y)
+    flagged = (
+        base.mark_point(
+            filled=True, size=40, color=RUST_500, stroke=SURFACE, strokeWidth=1, clip=True
+        )
+        .encode(y="unusualness:Q")
+        .transform_filter("datum.is_unusual")
+    )
+    targets = (
+        base.mark_point(opacity=0, size=200, clip=True)
+        .encode(
+            y="unusualness:Q",
+            tooltip=[
+                alt.Tooltip("time:T", title="Hour", format=TIME_FORMAT),
+                alt.Tooltip("unusualness:Q", title="× control limit", format=".2f"),
+                alt.Tooltip("what:N", title="Stood out"),
+            ],
+        )
+        .add_params(hover)
+    )
+    rule = base.mark_rule(color=INK_MUTED, clip=True).transform_filter(hover)
+    return alt.layer(limit, line, flagged, rule, targets).properties(height=200)
+
+
 LOAD_SERIES = {"Actual": PETROL_900, "Day-ahead forecast": TEAL_500}
 
 

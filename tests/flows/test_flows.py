@@ -229,6 +229,34 @@ def test_a_failed_dbt_build_fails_the_flow(wired, monkeypatch):
         daily_refresh(zones=["ES"], trailing_days=1)
 
 
+def test_the_monitor_runs_after_the_build_on_the_marts(wired, monkeypatch):
+    database, dbt_calls = wired
+    seen = []
+
+    def run(con):
+        seen.append(list(dbt_calls))  # what dbt had done when the monitor started
+        return 0
+
+    monkeypatch.setattr(tasks.monitor_job, "run", run)
+
+    daily_refresh(zones=["ES"], trailing_days=1)
+
+    assert seen == [[["deps"], ["build", "--target", "dev"]]]
+
+
+def test_a_failed_monitor_fails_the_run_after_the_freshness_check(wired, monkeypatch):
+    _, dbt_calls = wired
+
+    def broken(con):
+        raise ValueError("the SVD did not converge")
+
+    monkeypatch.setattr(tasks.monitor_job, "run", broken)
+
+    with pytest.raises(RuntimeError, match="monitor of unusual system conditions failed"):
+        daily_refresh(zones=["ES"], trailing_days=1)
+    assert ["source", "freshness", "--target", "dev"] in dbt_calls  # still checked
+
+
 def test_stale_sources_fail_the_daily_run_after_the_build(wired, monkeypatch):
     _, dbt_calls = wired
     monkeypatch.setattr(
