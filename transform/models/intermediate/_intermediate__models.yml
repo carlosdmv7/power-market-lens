@@ -43,10 +43,10 @@ models:
     description: >
       Prices per zone and UTC hour: the mean of the hour's intervals at the
       finest resolution published for it. Grain: zone × UTC hour.
-    data_tests:
-      - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns: [bidding_zone_eic, hour_start_utc]
+    # No uniqueness test here: the model groups by exactly these columns, so
+    # duplicates cannot occur. On a view, the test re-ran the whole lineage
+    # down to raw for nothing. The grain is tested on fct_day_ahead_price_hourly,
+    # a table, where a seed join that fans out would show.
     columns:
       - name: bidding_zone_eic
         description: EIC code of the bidding zone.
@@ -73,10 +73,10 @@ models:
     description: >
       Generation and pumping consumption per zone, production type and UTC
       hour, as mean power over the hour. Grain: zone × production type × UTC hour.
-    data_tests:
-      - dbt_utils.unique_combination_of_columns:
-          arguments:
-            combination_of_columns: [bidding_zone_eic, psr_type, hour_start_utc]
+    # No uniqueness test here, for the same reason as the prices above: the
+    # model groups by exactly these columns. It was the most expensive test of
+    # the prod build (327 s of 39 min of node time on 2026-11-16). The grain is
+    # tested on fct_generation_hourly, a table.
     columns:
       - name: bidding_zone_eic
         description: EIC code of the bidding zone.
