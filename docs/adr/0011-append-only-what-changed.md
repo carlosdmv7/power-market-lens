@@ -20,6 +20,13 @@ It now matters, for compute rather than storage:
   the whole of raw to find the latest version of each point.
 - Raw generation held 17.5 million rows for 3.6 million hourly mart rows.
 
+*Correction, same day:* the 39 minutes were measured on a build that reached
+the limit, and MotherDuck slows queries once it is reached. The next build, at
+19:08 UTC with the same raw, took 5.7 minutes of node time and 1.6 elapsed. Most
+of the 39 minutes was the slowdown, not the work. Raw's copies still multiply
+what staging ranks, about fivefold for generation. But the reason to stop them
+is that they grow without limit, not a measured share of the compute.
+
 Measured in prod raw (Spain, 10 November 2026, read on 2026-11-16):
 
 - Every price, generation and load point had six copies, and **not one value
@@ -72,14 +79,18 @@ Measured in prod raw (Spain, 10 November 2026, read on 2026-11-16):
   - Revised values: none.
   - Through MotherDuck, into `power_dev`: a second identical load appended 0
     rows.
+  - In prod, the first daily run with this change (2026-11-16 19:08 UTC)
+    appended 23,070 rows across the four tables, against 163,786 for the run
+    the night before (−86%). Prices: 1,152, which is tomorrow's 96
+    quarter-hours × 12 zones and nothing else.
 - **`_loaded_at` changes meaning.** It now means when this version was first
   stored, not when the point was last seen. "When did the pipeline last check"
   is in the run logs and Prefect, not in raw. The freshness heartbeat
   (ADR-007) and the app's "Last loaded" now move when new data arrives, which
   is once a day, with the next day's prices.
 - **Each load reads raw before writing:** the latest versions of its zone and
-  window. That is a small, bounded read, against the full re-ranking it saves
-  on every build.
+  window. That is a small, bounded read. Against it, staging no longer gains a
+  week of copies to rank every day.
 - **The copies already in raw stay.** Removing them would be deleting data,
   which needs its own decision. Until then, staging still ranks them, so build
   time drops as a share of raw rather than at once. What stops is the growth.
