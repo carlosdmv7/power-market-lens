@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 import charts
+import conditions
 import data
 import mix
 import pandas as pd
@@ -117,6 +118,11 @@ metrics = data.hourly_mix_metrics(zone, start, end)
 metrics = metrics.assign(time=to_local(metrics))
 load = data.hourly_load(zone, start, end)
 load = load.assign(time=to_local(load))
+unusual = data.hourly_conditions(zone, start, end)
+if not unusual.empty:
+    unusual = unusual.assign(
+        time=to_local(unusual), what=unusual.apply(conditions.stood_out, axis=1)
+    )
 measured = load.dropna(subset=["actual_load_mw", "forecast_load_mw"])
 # Above this, forecast and actual disagree by more than any forecast misses:
 # the two series most likely cover different things (seen in NL, 2026-10).
@@ -243,6 +249,40 @@ if not metrics.empty:
             "takes hard coal's factor though it emits more, it is understated."
         )
     st.caption(caption)
+
+# ── Unusual hours ─────────────────────────────────────────────────────────────
+if not unusual.empty:
+    theme.section("Unusual hours")
+    theme.altair_chart(charts.conditions_chart(unusual, time_domain))
+    st.caption(
+        "How far each hour lay from this zone's normal behaviour over the previous four "
+        "weeks at the same hour, taking load, its forecast error, generation by group, net "
+        "imports and the price together (Hotelling T² and Q). Above 1 the hour is beyond the "
+        "control limit, which about 1 hour in 100 crosses in a normal year. Unusual is a "
+        "statistical statement, not a risk: this is not a reliability or security "
+        "assessment, and it would not have flagged the hours before the Iberian blackout of "
+        "28 April 2025."
+    )
+    found = conditions.episodes(unusual)
+    if found.empty:
+        st.caption("No hour in these dates was beyond the control limit.")
+    else:
+        st.dataframe(
+            found.rename(
+                columns={
+                    "start": "Starts (local)",
+                    "hours": "Hours",
+                    "peak": "Peak (× limit)",
+                    "what": "What stood out at the peak",
+                }
+            ),
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Starts (local)": st.column_config.DatetimeColumn(format="ddd D MMM, HH:mm"),
+                "Peak (× limit)": st.column_config.NumberColumn(format="%.1f"),
+            },
+        )
 
 with st.expander("Data table", icon=":material/table:"):
     table = prices[["time", "price_eur_mwh"]].rename(

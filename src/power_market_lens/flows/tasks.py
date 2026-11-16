@@ -28,6 +28,7 @@ from power_market_lens.ingest.jobs import (
     load_total_load_forecast,
 )
 from power_market_lens.ingest.warehouse import connect, ensure_raw_tables
+from power_market_lens.monitor import job as monitor_job
 from power_market_lens.zones import SDAC_TIMEZONE, get_zone
 
 DBT_PROJECT_DIR = Path(__file__).resolve().parents[3] / "transform"
@@ -196,18 +197,47 @@ def tomorrows_prices_built(zone_codes: list[str], now: datetime) -> bool:
     return all(latest.get(code) is not None and latest[code] >= tomorrow for code in zone_codes)
 
 
+MONITOR_KEY = "monitor/system_conditions"
+
+
+@task(task_run_name="assess system conditions")
+def assess_system_conditions() -> int:
+    """Score every zone's hours for unusual conditions and replace the monitor
+    table (ADR-008). Reads only the marts, so it runs after `dbt build`."""
+    with make_connection(load_settings()) as con:
+        return monitor_job.run(con)
+
+
+def run_monitor() -> list[str]:
+    """The monitor, with the loads' rule: a failure is recorded, not raised, so
+    it never holds back freshness checks; the run fails at the end."""
+    state = assess_system_conditions(return_state=True)
+    return [] if state.is_completed() else [MONITOR_KEY]
+
+
 def raise_for_failed(failed: list[str]) -> None:
     if not failed:
         return
     skipped = [key for key in failed if key.endswith("(skipped)")]
-    attempted = [key for key in failed if key not in skipped]
-    message = f"{len(attempted)} load(s) failed after their retries: {', '.join(attempted)}."
+    attempted = [key for key in failed if key not in skipped and key != MONITOR_KEY]
+    parts = []
+    if attempted:
+        parts.append(
+            f"{len(attempted)} load(s) failed after their retries: {', '.join(attempted)}."
+        )
     if skipped:
-        message += (
-            f" After {MAX_CONSECUTIVE_FAILURES} failures in a row ENTSO-E looked unavailable, "
+        parts.append(
+            f"After {MAX_CONSECUTIVE_FAILURES} failures in a row ENTSO-E looked unavailable, "
             f"so {len(skipped)} load(s) were not attempted."
         )
-    raise RuntimeError(message + " dbt was built on the loads that succeeded.")
+    if attempted or skipped:
+        parts.append("dbt was built on the loads that succeeded.")
+    if MONITOR_KEY in failed:
+        parts.append(
+            "The monitor of unusual system conditions failed (see its task log); "
+            "the marts were built."
+        )
+    raise RuntimeError(" ".join(parts))
 
 
 def run_dbt(args: list[str]) -> bool:

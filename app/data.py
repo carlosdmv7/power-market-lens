@@ -155,6 +155,26 @@ def hourly_load(zone_code: str, start: date, end: date) -> pd.DataFrame:
     )
 
 
+@st.cache_data(ttl=CACHE_TTL_S)
+def hourly_conditions(zone_code: str, start: date, end: date) -> pd.DataFrame:
+    """How unusual each hour was for the zone, and the variables that made it
+    so (ADR-008). Written by the pipeline's monitor, not by dbt; empty until
+    the monitor has run."""
+    try:
+        return _query(
+            """
+            select hour_start_utc, utc_offset_minutes, unusualness, is_unusual, statistic,
+                   driver_1, driver_1_z, driver_2, driver_2_z, driver_3, driver_3_z
+            from monitor.system_conditions_hourly
+            where zone_code = ? and delivery_date_local between ? and ?
+            order by hour_start_utc
+            """,
+            [zone_code, start, end],
+        )
+    except duckdb.CatalogException:
+        return pd.DataFrame()
+
+
 @st.cache_data
 def zone_geometry() -> list[dict]:
     """The map's GeoJSON features: modelled zones, neighbours, context land."""

@@ -1,5 +1,6 @@
-"""Daily refresh: re-pull the trailing window for every zone, dbt build, then
-check that ENTSO-E is still delivering (source freshness). A zone whose load
+"""Daily refresh: re-pull the trailing window for every zone, dbt build, score
+the hours for unusual conditions (ADR-008), then check that ENTSO-E is still
+delivering (source freshness). A zone whose load
 fails does not stop the others; the run fails at the end, naming it. The
 Eurostat household prices are loaded too, when Eurostat has updated them.
 
@@ -23,6 +24,7 @@ from power_market_lens.flows.tasks import (
     load_household_prices,
     load_zones,
     raise_for_failed,
+    run_monitor,
     source_freshness,
     tomorrows_prices_built,
 )
@@ -51,6 +53,8 @@ def daily_refresh(
     counts |= household_counts
     failed += household_failed
     dbt_build(settings.app_env)
+    # The monitor reads the marts just built (ADR-008).
+    failed += run_monitor()
     # After the build, so the marts are refreshed with whatever did arrive
     # before a stale source fails the run.
     source_freshness(settings.app_env)
