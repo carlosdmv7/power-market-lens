@@ -28,7 +28,7 @@ def backfill(start_date: date, end_date: date, zones: list[str] | None = None) -
 
     counts, failed = load_zones(zones or sorted(ZONES), windows)
     dbt_build(settings.app_env)
-    failed += run_monitor()  # the monitor scores the whole history (ADR-008)
+    failed += run_monitor(settings.app_env)  # the monitor scores the whole history (ADR-008)
     raise_for_failed(failed)
     return counts
 

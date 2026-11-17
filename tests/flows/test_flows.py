@@ -242,6 +242,32 @@ def test_the_monitor_runs_after_the_build_on_the_marts(wired, monkeypatch):
     daily_refresh(zones=["ES"], trailing_days=1)
 
     assert seen == [[["deps"], ["build", "--target", "dev"]]]
+    # It wrote nothing, so there is no table for dbt to test.
+    assert ["test", "--select", "source:monitor", "--target", "dev"] not in dbt_calls
+
+
+def test_dbt_tests_the_monitor_table_right_after_it_is_written(wired, monkeypatch):
+    _, dbt_calls = wired
+    monkeypatch.setattr(tasks.monitor_job, "run", lambda con: 1000)
+
+    daily_refresh(zones=["ES"], trailing_days=1)
+
+    assert dbt_calls == [
+        ["deps"],
+        ["build", "--target", "dev"],
+        ["test", "--select", "source:monitor", "--target", "dev"],
+        ["source", "freshness", "--target", "dev"],
+    ]
+
+
+def test_a_monitor_table_failing_its_tests_fails_the_run(wired, monkeypatch):
+    _, dbt_calls = wired
+    monkeypatch.setattr(tasks.monitor_job, "run", lambda con: 1000)
+    monkeypatch.setattr(tasks, "run_dbt", lambda args: dbt_calls.append(args) or args[0] != "test")
+
+    with pytest.raises(RuntimeError, match="failed its dbt tests"):
+        daily_refresh(zones=["ES"], trailing_days=1)
+    assert ["source", "freshness", "--target", "dev"] in dbt_calls  # still checked
 
 
 def test_a_failed_monitor_fails_the_run_after_the_freshness_check(wired, monkeypatch):
