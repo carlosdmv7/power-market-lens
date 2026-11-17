@@ -53,8 +53,8 @@ def daily_refresh(
     counts |= household_counts
     failed += household_failed
     dbt_build(settings.app_env)
-    # The monitor reads the marts just built (ADR-008).
-    failed += run_monitor()
+    # The monitor reads the marts just built, then dbt tests its table (ADR-008).
+    failed += run_monitor(settings.app_env)
     # After the build, so the marts are refreshed with whatever did arrive
     # before a stale source fails the run.
     source_freshness(settings.app_env)

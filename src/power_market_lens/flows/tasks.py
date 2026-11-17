@@ -208,11 +208,21 @@ def assess_system_conditions() -> int:
         return monitor_job.run(con)
 
 
-def run_monitor() -> list[str]:
-    """The monitor, with the loads' rule: a failure is recorded, not raised, so
-    it never holds back freshness checks; the run fails at the end."""
+def run_monitor(target: str) -> list[str]:
+    """The monitor, then dbt's tests on the table it wrote.
+
+    The tests run here, not in `dbt build`: the build comes first and would
+    test the previous run's table (selectors.yml keeps them out of it). With
+    the loads' rule, a failure of either is recorded, not raised, so it never
+    holds back the freshness check; the run fails at the end.
+    """
     state = assess_system_conditions(return_state=True)
-    return [] if state.is_completed() else [MONITOR_KEY]
+    if not state.is_completed():
+        return [MONITOR_KEY]
+    if state.result() == 0:
+        return []  # nothing written (no marts, or too little history): nothing to test
+    tested = test_monitor_table(target, return_state=True)
+    return [] if tested.is_completed() else [MONITOR_KEY]
 
 
 def raise_for_failed(failed: list[str]) -> None:
@@ -234,8 +244,8 @@ def raise_for_failed(failed: list[str]) -> None:
         parts.append("dbt was built on the loads that succeeded.")
     if MONITOR_KEY in failed:
         parts.append(
-            "The monitor of unusual system conditions failed (see its task log); "
-            "the marts were built."
+            "The monitor of unusual system conditions failed, or its table failed its "
+            "dbt tests (see the task log); the marts were built."
         )
     raise RuntimeError(" ".join(parts))
 
@@ -287,3 +297,11 @@ def source_freshness(target: str) -> None:
             f"Source freshness failed on target {target}: the newest ENTSO-E data is "
             "older than error_after (see the dbt output above)"
         )
+
+
+@task(task_run_name="test the monitor table ({target})")
+def test_monitor_table(target: str) -> None:
+    """dbt's tests on the table the monitor has just written (ADR-008)."""
+    _export_motherduck_token()
+    if not run_dbt(["test", "--select", "source:monitor", "--target", target]):
+        raise RuntimeError(f"The monitor table failed its dbt tests on target {target}")

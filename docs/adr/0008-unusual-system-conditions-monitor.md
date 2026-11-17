@@ -162,5 +162,19 @@ never present it as a blackout probability.
     forecast error leads until 10:00 (z up to +9.9).
   - None of the hours published on 28 April 2025 before the blackout is
     flagged.
-- **Pending, for review:** a dbt source for the table with key tests, and the
-  app's exposure depending on it.
+- **dbt source and tests, after the monitor (decided 2026-11-17).** The table
+  is `source('monitor', 'system_conditions_hourly')`, with these tests:
+  - key uniqueness, and `not_null` on the key and the flag;
+  - `zone_code` must exist in `dim_bidding_zone`;
+  - the accepted statistics, and `unusualness ≥ 0`.
+
+  The app's exposure depends on the source. The tests cannot run inside
+  `dbt build`, which comes before the monitor: there they would test the
+  previous run's table, or none in CI and in a new database.
+  - A default selector (`transform/selectors.yml`) leaves the source and its
+    tests out of every command run without a selection.
+  - The pipeline runs `dbt test --select source:monitor` right after the
+    monitor writes the table. A failure fails the run at the end, like a
+    failed load.
+  - CI never tests the table: `power_dev` holds days, not the year of history
+    the monitor needs.

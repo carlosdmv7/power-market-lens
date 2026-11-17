@@ -1,0 +1,97 @@
+version: 2
+
+# The monitor of unusual system conditions (ADR-008) is computed in Python
+# from the marts and written by the pipeline after `dbt build`, so dbt reads
+# it as a source. Its tests run right after the monitor writes it
+# (`dbt test --select source:monitor`, flows/tasks.py); the default selector
+# in selectors.yml keeps them out of every `dbt build`, where they would test
+# the previous run's table, or a table that does not exist yet (CI, a new
+# database).
+
+sources:
+  - name: monitor
+    description: Written by the pipeline's monitor job (power_market_lens.monitor), not by dbt.
+    schema: monitor
+    tables:
+      - name: system_conditions_hourly
+        description: >
+          How unusual each hour was for its zone, and why: Hotelling T² and Q
+          over load, its forecast error, generation by group, net imports and
+          the price, each as a z-score against the previous four weeks at the
+          same local hour. Replaced in full on every run. Grain: zone × UTC hour.
+        data_tests:
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: [zone_code, hour_start_utc]
+        columns:
+          - name: zone_code
+            description: Short zone label, e.g. ES.
+            data_tests:
+              - not_null
+              - relationships:
+                  arguments:
+                    to: ref('dim_bidding_zone')
+                    field: zone_code
+          - name: hour_start_utc
+            description: Start of the hour, UTC.
+            data_tests:
+              - not_null
+          - name: delivery_date_local
+            description: Date in the zone's local time.
+          - name: delivery_hour_local
+            description: Local hour of day, 0–23.
+          - name: utc_offset_minutes
+            description: Local time minus UTC at that hour, minutes.
+          - name: is_reference
+            description: True for the reference period (2024) the PCA and the limits are fitted on.
+          - name: t2
+            description: Hotelling T², the distance from normal inside the usual correlation structure.
+          - name: q
+            description: Q (squared prediction error), how far the hour breaks that structure.
+          - name: t2_limit
+            description: The zone's T² control limit, the 99th percentile over the reference period.
+          - name: q_limit
+            description: The zone's Q control limit, the 99th percentile over the reference period.
+          - name: unusualness
+            description: The larger of T² and Q over their limits; above 1 the hour is unusual.
+            data_tests:
+              - not_null
+              - dbt_utils.accepted_range:
+                  arguments:
+                    min_value: 0
+          - name: is_unusual
+            description: True when T² or Q is beyond its control limit.
+            data_tests:
+              - not_null
+          - name: statistic
+            description: The statistic that explains the hour, the one further beyond its limit.
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: [T2, Q]
+          - name: driver_1
+            description: The variable contributing most to that statistic (a monitor variable name).
+            data_tests:
+              - not_null
+          - name: driver_1_z
+            description: Its z-score; the sign says above or below usual.
+          - name: driver_1_share
+            description: Its share of the statistic.
+          - name: driver_2
+            description: The second contributor.
+          - name: driver_2_z
+            description: Its z-score.
+          - name: driver_2_share
+            description: Its share of the statistic.
+          - name: driver_3
+            description: The third contributor.
+          - name: driver_3_z
+            description: Its z-score.
+          - name: driver_3_share
+            description: Its share of the statistic.
+          - name: n_components
+            description: Principal components kept for the zone (80% of the variance).
+          - name: n_features
+            description: Variables the zone reports (8 where it has no nuclear).
+          - name: assessed_at
+            description: When the monitor wrote the table, UTC.

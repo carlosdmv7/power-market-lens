@@ -1,0 +1,21 @@
+selectors:
+  # Used by every dbt command run without --select or --exclude: CI's
+  # `dbt build`, `make dbt-build` and the pipeline's build.
+  - name: everything_but_the_monitor
+    description: >
+      Every node except the monitor's source and its tests. The pipeline
+      writes that table after `dbt build` (ADR-008) and tests it then, with
+      `dbt test --select source:monitor`. Inside a build the tests would see
+      the previous run's table, or none at all in CI and in a new database.
+    default: true
+    definition:
+      union:
+        - method: fqn
+          value: "*"
+        # fqn:* does not match sources. Without this line the default would
+        # drop every source, and `dbt source freshness` would check nothing.
+        - method: source
+          value: "*"
+        - exclude:
+            - method: source
+              value: monitor
